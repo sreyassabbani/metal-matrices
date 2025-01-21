@@ -1,0 +1,6 @@
+# Ferris hideout
+target/
+Cargo.lock
+
+# "Don't worry about it"
+src/ignore.rs
