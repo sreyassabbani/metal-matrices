@@ -1,4 +1,4 @@
-// File for matrix things
+use thiserror::Error;
 
 /// A matrix struct, where
 /// - `const M: usize` = number of rows
@@ -24,14 +24,24 @@ impl<const M: usize, const N: usize> Matrix<M, N> {
 
     pub fn get(&self, row: usize, col: usize) -> Result<f64, ()> {
         if row >= M || col >= N {
-            return Err(());
+            return Err(Error::OutOfBounds {
+                row_found: row,
+                row_max: M,
+                col_found: col,
+                col_max: N,
+            });
         }
         Ok(self.entries[col][row])
     }
 
     pub fn set(&mut self, row: usize, col: usize, val: f64) -> Result<(), ()> {
         if row >= M || col >= N {
-            return Err(());
+            return Err(Error::OutOfBounds {
+                row_found: row,
+                row_max: M,
+                col_found: col,
+                col_max: N,
+            });
         }
         self.entries[col][row] = val;
         Ok(())
@@ -90,4 +100,15 @@ impl<const M: usize, const N: usize> fmt::Debug for Matrix<M, N> {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Accessing element by index out of bounds of matrix dimensions: get at row number {row_found} when number of rows is {row_max}, get at column number {col_found} when number of columns is {col_max}")]
+    OutOfBounds {
+        row_found: usize,
+        row_max: usize,
+        col_found: usize,
+        col_max: usize,
+    },
 }
