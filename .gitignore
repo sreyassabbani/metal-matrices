@@ -4,3 +4,7 @@ Cargo.lock
 
 # "Don't worry about it"
 src/ignore.rs
+
+# Metal IRs and binaries
+shaders/*.metallib
+shaders/*.air

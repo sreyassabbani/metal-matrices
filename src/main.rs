@@ -1,19 +1,31 @@
 use matrix_test::matrix::Matrix;
 
-type SquareMatrix<const M: usize> = Matrix<M, M>;
+type FSquareMatrix<const M: usize> = Matrix<f32, M, M>;
+type ISquareMatrix<const M: usize> = Matrix<i64, M, M>;
 
 fn main() {
-    let m = SquareMatrix::<2>::new([[1.0, 1.0], [1.0, 1.0]]);
+    let m = FSquareMatrix::<2>::new([[1.0, 1.0], [1.0, 1.0]]);
 
-    println!("Matrix 1:\n{:?}", m);
+    // println!("Matrix 1:\n{:?}", m);
 
-    let mut r = SquareMatrix::<2>::identity();
-    r.set(0, 0, 90.0).unwrap();
-    r.set(0, 1, 90.0).unwrap();
+    let A = FSquareMatrix::new([
+        [1.0, 2.0, 3.0],
+        [4.0, 5.0, 6.0],
+        [7.0, 8.0, 9.0]
+    ]);
+    let B = FSquareMatrix::new([
+        [9.0, 8.0, 7.0],
+        [6.0, 5.0, 4.0],
+        [3.0, 2.0, 1.0],
+    ]);
 
-    println!("Matrix 2:\n{:?}", r);
+    // println!("Matrix 2:\n{:?}", r);
 
-    println!("Product:\n{:?}", &m * &r);
+    println!("Product:\n{:?}", &A * &B);
+    println!("Product with GPU:\n{:?}", A.gpu_multiply(&B));
+
+    // let f = ISquareMatrix::<2>::new([[1, 1], [1, 0]]);
+    // println!("Matrix 1 raised to the 4th:\n{:?}", &(&(&f * &f) * &f) * &f);
 
     // TODO: Implement multiplication for owned values
 }
