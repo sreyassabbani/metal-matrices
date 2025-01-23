@@ -9,6 +9,8 @@ use std::ops;
 /// Internal type for dealing with general matrices.
 pub trait MatrixNumeric:
     ops::Add<Output = Self>
+    + ops::Sub<Output = Self>
+    + ops::SubAssign
     + ops::AddAssign
     + ops::Mul<Output = Self>
     + Default
@@ -127,6 +129,31 @@ impl<T: MatrixNumeric, const M: usize, const N: usize> Matrix<T, M, N> {
         }
         self.entries[col][row] = val;
         Ok(())
+    }
+
+    /// Returns the transpose of the given matrix
+    ///
+    /// ```rs
+    /// let m = Matrix::new(entries);
+    /// let t = m.transpose();
+    /// ```
+    /// Note `t` and `m` will be of different types if `m` if not square.
+    pub fn transpose(&self) -> Matrix<T, N, M> {
+        let mut result_entries = [[T::default(); M]; N];
+        for i in 0..N {
+            for j in 0..M {
+                result_entries[i][j] = self.entries[j][i]
+            }
+        }
+        Matrix::new(result_entries)
+    }
+
+    pub fn determinant(&self) -> Result<T, Error> {
+        todo!()
+    }
+
+    pub fn inverse(&self) -> Result<Matrix<T, N, M>, Error> {
+        todo!()
     }
 }
 
@@ -269,6 +296,46 @@ impl<T: MatrixNumeric, const M: usize, const N: usize, const K: usize>
                     sum += self.entries[i][k] * other.entries[k][j]
                 }
                 res_entries[i][j] = sum;
+            }
+        }
+
+        Self::Output {
+            entries: Box::new(res_entries),
+        }
+    }
+}
+
+impl<T: MatrixNumeric, const M: usize, const N: usize> std::ops::Add<&Matrix<T, M, N>>
+    for &Matrix<T, M, N>
+{
+    type Output = Matrix<T, M, N>;
+
+    /// Add matrices together
+    fn add(self, other: &Matrix<T, M, N>) -> Matrix<T, M, N> {
+        let mut res_entries = [[T::default(); N]; M];
+        for i in 0..M {
+            for j in 0..N {
+                res_entries[i][j] = self.entries[i][j] + other.entries[i][j]
+            }
+        }
+
+        Self::Output {
+            entries: Box::new(res_entries),
+        }
+    }
+}
+
+impl<T: MatrixNumeric, const M: usize, const N: usize> std::ops::Sub<&Matrix<T, M, N>>
+    for &Matrix<T, M, N>
+{
+    type Output = Matrix<T, M, N>;
+
+    /// Add matrices together
+    fn sub(self, other: &Matrix<T, M, N>) -> Matrix<T, M, N> {
+        let mut res_entries = [[T::default(); N]; M];
+        for i in 0..M {
+            for j in 0..N {
+                res_entries[i][j] = self.entries[i][j] - other.entries[i][j]
             }
         }
 
