@@ -1,3 +1,4 @@
+use crate::{numeric::Numeric, vector::Vector};
 use std::{mem, path::PathBuf};
 
 use thiserror::Error;
@@ -5,81 +6,11 @@ use thiserror::Error;
 use metal::*;
 use objc::rc::autoreleasepool;
 
-use std::ops;
-/// Internal type for dealing with general matrices.
-pub trait MatrixNumeric:
-    ops::Add<Output = Self>
-    + ops::Sub<Output = Self>
-    + ops::SubAssign
-    + ops::AddAssign
-    + ops::Mul<Output = Self>
-    + Default
-    + std::fmt::Debug
-    + Copy
-{
-    fn mul_idnt() -> Self;
-    fn add_idnt() -> Self;
-}
-
-impl MatrixNumeric for f64 {
-    fn mul_idnt() -> Self {
-        1_f64
-    }
-    fn add_idnt() -> Self {
-        0_f64
-    }
-}
-
-impl MatrixNumeric for f32 {
-    fn mul_idnt() -> Self {
-        1_f32
-    }
-    fn add_idnt() -> Self {
-        0_f32
-    }
-}
-
-impl MatrixNumeric for i64 {
-    fn mul_idnt() -> Self {
-        1_i64
-    }
-    fn add_idnt() -> Self {
-        0_i64
-    }
-}
-
-impl MatrixNumeric for i32 {
-    fn mul_idnt() -> Self {
-        1_i32
-    }
-    fn add_idnt() -> Self {
-        0_i32
-    }
-}
-
-impl MatrixNumeric for u64 {
-    fn mul_idnt() -> Self {
-        1_u64
-    }
-    fn add_idnt() -> Self {
-        0_u64
-    }
-}
-
-impl MatrixNumeric for u32 {
-    fn mul_idnt() -> Self {
-        1_u32
-    }
-    fn add_idnt() -> Self {
-        0_u32
-    }
-}
-
 /// A matrix struct, where
 /// - `const M: usize` = number of rows
 /// - `const N: usize` = number of cols
 #[derive(PartialEq)]
-pub struct Matrix<T: MatrixNumeric, const M: usize, const N: usize> {
+pub struct Matrix<T: Numeric, const M: usize, const N: usize> {
     entries: Box<[[T; N]; M]>,
 }
 
@@ -95,7 +26,20 @@ where
             entries: Box::new(value),
         }
     }
+}
 
+/// Build a matrix from vectors
+// impl<T: Numeric, const M: usize, const N: usize> From<[Vector<T, M>; N]> for Matrix<T, M, N> {
+//     fn from(value: [Vector<T, M>; N]) -> Self {
+//         let v: &[T; N] = value.as_ref();
+//         Self {
+//             entries: Box::new(*value.as_ref()),
+//         }
+//     }
+// }
+
+// TODO: Use proper error handling
+impl<T: Numeric, const M: usize, const N: usize> Matrix<T, M, N> {
     /// Returns the null matrix of a given dimension
     ///
     /// ```rs
@@ -110,6 +54,15 @@ where
         }
     }
 
+    /// Get the entry at `row` and `col` for a given [`Matrix<T, M, N>`]
+    ///
+    /// ```rs
+    /// let mat = Matrix::<i32, 3, 3>::from([[1, 2, 3], [42, 5, 6], [7, 8, 9]]);
+    /// let found = mat.get(2, 1);
+    /// let expected = 42;
+    ///
+    /// assert_eq!(found, expected);
+    /// ```
     pub fn get(&self, row: usize, col: usize) -> Result<T, Error> {
         if row >= M || col >= N {
             return Err(Error::OutOfBounds {
@@ -135,6 +88,16 @@ where
         Ok(())
     }
 
+    /// Get the column [`Vector<T, M>`] at a given column. Note argument `col` is 0-indexed.
+    pub fn get_vector(&self, col: usize) -> Vector<T, M> {
+        let mut entries = [T::default(); M];
+        for i in 0..M {
+            println!("{:?}", self.entries[i]);
+            entries[i] = self.entries[i][col];
+        }
+        Vector::from(entries)
+    }
+
     /// Returns the transpose of the given matrix
     ///
     /// ```rs
@@ -149,7 +112,7 @@ where
                 result_entries[i][j] = self.entries[j][i]
             }
         }
-        Matrix::new(result_entries)
+        Matrix::from(result_entries)
     }
 
     pub fn determinant(&self) -> Result<T, Error> {
@@ -159,6 +122,7 @@ where
     pub fn inverse(&self) -> Result<Matrix<T, N, M>, Error> {
         todo!()
     }
+    // pub fn from_transformed_unit_vectors() -> Self {}
 }
 
 impl<const M: usize, const N: usize> Matrix<f32, M, N> {
@@ -172,7 +136,7 @@ impl<const M: usize, const N: usize> Matrix<f32, M, N> {
             // Load the metal compute shader
             let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
             path.push("shaders");
-            path.push("matrix_multiplication.metallib");
+            path.push("shaders.metallib");
             let library = device.new_library_with_file(path).unwrap();
             let kernel = library.get_function("matrix_multiply", None).unwrap();
 
@@ -262,7 +226,7 @@ impl<const M: usize, const N: usize> Matrix<f32, M, N> {
 }
 
 // Methods exclusive to square matrices
-impl<T: MatrixNumeric, const M: usize> Matrix<T, M, M> {
+impl<T: Numeric, const M: usize> Matrix<T, M, M> {
     /// Returns the identity matrix
     ///
     /// # Example
@@ -285,13 +249,13 @@ impl<T: MatrixNumeric, const M: usize> Matrix<T, M, M> {
 }
 
 // Implement naive matrix multiplication
-impl<T: MatrixNumeric, const M: usize, const N: usize, const K: usize>
-    std::ops::Mul<&Matrix<T, N, K>> for &Matrix<T, M, N>
+impl<T: Numeric, const M: usize, const N: usize, const K: usize> std::ops::Mul<&Matrix<T, N, K>>
+    for &Matrix<T, M, N>
 {
     type Output = Matrix<T, M, K>;
 
     /// Multiply matrices together
-    fn mul(self, other: &Matrix<T, N, K>) -> Matrix<T, M, K> {
+    fn mul(self, other: &Matrix<T, N, K>) -> Self::Output {
         let mut res_entries = [[T::default(); K]; M];
         for i in 0..M {
             for j in 0..K {
@@ -309,13 +273,13 @@ impl<T: MatrixNumeric, const M: usize, const N: usize, const K: usize>
     }
 }
 
-impl<T: MatrixNumeric, const M: usize, const N: usize> std::ops::Add<&Matrix<T, M, N>>
+impl<T: Numeric, const M: usize, const N: usize> std::ops::Add<&Matrix<T, M, N>>
     for &Matrix<T, M, N>
 {
     type Output = Matrix<T, M, N>;
 
     /// Add matrices together
-    fn add(self, other: &Matrix<T, M, N>) -> Matrix<T, M, N> {
+    fn add(self, other: &Matrix<T, M, N>) -> Self::Output {
         let mut res_entries = [[T::default(); N]; M];
         for i in 0..M {
             for j in 0..N {
@@ -329,13 +293,13 @@ impl<T: MatrixNumeric, const M: usize, const N: usize> std::ops::Add<&Matrix<T, 
     }
 }
 
-impl<T: MatrixNumeric, const M: usize, const N: usize> std::ops::Sub<&Matrix<T, M, N>>
+impl<T: Numeric, const M: usize, const N: usize> std::ops::Sub<&Matrix<T, M, N>>
     for &Matrix<T, M, N>
 {
     type Output = Matrix<T, M, N>;
 
     /// Add matrices together
-    fn sub(self, other: &Matrix<T, M, N>) -> Matrix<T, M, N> {
+    fn sub(self, other: &Matrix<T, M, N>) -> Self::Output {
         let mut res_entries = [[T::default(); N]; M];
         for i in 0..M {
             for j in 0..N {
@@ -350,7 +314,7 @@ impl<T: MatrixNumeric, const M: usize, const N: usize> std::ops::Sub<&Matrix<T, 
 }
 
 use std::fmt;
-impl<T: MatrixNumeric, const M: usize, const N: usize> fmt::Debug for Matrix<T, M, N> {
+impl<T: Numeric, const M: usize, const N: usize> fmt::Debug for Matrix<T, M, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for row in &*self.entries {
             for e in &row[..row.len() - 1] {
