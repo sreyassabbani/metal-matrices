@@ -83,12 +83,16 @@ pub struct Matrix<T: MatrixNumeric, const M: usize, const N: usize> {
     entries: Box<[[T; N]; M]>,
 }
 
-// TODO: Use proper error handling
-impl<T: MatrixNumeric, const M: usize, const N: usize> Matrix<T, M, N> {
-    /// Constructs a matrix from the given entries
-    pub fn new(entries: [[T; N]; M]) -> Self {
+/// Implementation of [`From`] trait to build a [`Matrix<T, M, N>`] from `[[T; M]; N]`
+impl<T, const M: usize, const N: usize> From<[[T; N]; M]> for Matrix<T, M, N>
+where
+    T: Numeric,
+{
+    /// Convert from a `[[T; M]; N]` to a [`Matrix<T, M, N>`].
+    /// Build a matrix from given entries
+    fn from(value: [[T; N]; M]) -> Self {
         Self {
-            entries: Box::new(entries),
+            entries: Box::new(value),
         }
     }
 
