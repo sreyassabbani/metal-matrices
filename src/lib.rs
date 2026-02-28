@@ -4,7 +4,10 @@ pub mod vector;
 
 #[cfg(test)]
 mod tests {
-    use crate::{matrix::Matrix, vector::Vector};
+    use crate::{
+        matrix::{ComputeBackend, ComputeOptions, Matrix},
+        vector::Vector,
+    };
     type FSquareMatrix<const M: usize> = Matrix<f64, M, M>;
     type FMatrix<const M: usize, const N: usize> = Matrix<f64, M, N>;
 
@@ -113,5 +116,56 @@ mod tests {
         let mat = FMatrix::<3, 2>::from([[1.0, 2.0], [42.0, 5.0], [7.0, 8.0]]);
 
         assert!(mat.get_vector(2).is_err());
+    }
+
+    #[test]
+    fn configured_cpu_multiply_uses_cpu_backend() {
+        let mat1 = Matrix::<f32, 2, 2>::from([[1.0, 2.0], [3.0, 4.0]]);
+        let mat2 = Matrix::<f32, 2, 2>::from([[5.0, 6.0], [7.0, 8.0]]);
+
+        let output = mat1.multiply_with(&mat2, ComputeOptions::cpu()).unwrap();
+
+        assert_eq!(output.backend, ComputeBackend::Cpu);
+        assert_eq!(
+            output.matrix,
+            Matrix::<f32, 2, 2>::from([[19.0, 22.0], [43.0, 50.0]])
+        );
+    }
+
+    #[test]
+    fn default_multiply_uses_cpu_backend() {
+        let mat1 = Matrix::<f32, 2, 2>::from([[1.0, 2.0], [3.0, 4.0]]);
+        let mat2 = Matrix::<f32, 2, 2>::from([[5.0, 6.0], [7.0, 8.0]]);
+
+        let output = mat1.multiply_with(&mat2, Default::default()).unwrap();
+
+        assert_eq!(output.backend, ComputeBackend::Cpu);
+        assert_eq!(
+            output.matrix,
+            Matrix::<f32, 2, 2>::from([[19.0, 22.0], [43.0, 50.0]])
+        );
+    }
+
+    #[test]
+    fn auto_with_fallback_produces_result() {
+        let mat1 = Matrix::<f32, 2, 2>::from([[1.0, 2.0], [3.0, 4.0]]);
+        let mat2 = Matrix::<f32, 2, 2>::from([[5.0, 6.0], [7.0, 8.0]]);
+
+        let output = mat1
+            .multiply_with(&mat2, ComputeOptions::auto().with_fallback(true))
+            .unwrap();
+
+        assert_eq!(
+            output.matrix,
+            Matrix::<f32, 2, 2>::from([[19.0, 22.0], [43.0, 50.0]])
+        );
+    }
+
+    #[test]
+    fn determinant_and_inverse_are_explicitly_unimplemented() {
+        let mat = Matrix::<f64, 2, 2>::from([[1.0, 2.0], [3.0, 4.0]]);
+
+        assert!(mat.determinant().is_err());
+        assert!(mat.inverse().is_err());
     }
 }

@@ -28,7 +28,7 @@ where
     }
 }
 
-/// Build a matrix from vectors
+// Build a matrix from vectors
 // impl<T: Numeric, const M: usize, const N: usize> From<[Vector<T, M>; N]> for Matrix<T, M, N> {
 //     fn from(value: [Vector<T, M>; N]) -> Self {
 //         let v: &[T; N] = value.as_ref();
@@ -96,8 +96,8 @@ impl<T: Numeric, const M: usize, const N: usize> Matrix<T, M, N> {
             });
         }
         let mut entries = [T::default(); M];
-        for i in 0..M {
-            entries[i] = self.entries[i][col];
+        for (i, entry) in entries.iter_mut().enumerate() {
+            *entry = self.entries[i][col];
         }
         Ok(Vector::from(entries))
     }
@@ -111,25 +111,127 @@ impl<T: Numeric, const M: usize, const N: usize> Matrix<T, M, N> {
     /// Note `t` and `m` will be of different types if `m` if not square.
     pub fn transpose(&self) -> Matrix<T, N, M> {
         let mut result_entries = [[T::default(); M]; N];
-        for i in 0..N {
-            for j in 0..M {
-                result_entries[i][j] = self.entries[j][i]
+        for (i, row) in result_entries.iter_mut().enumerate() {
+            for (j, entry) in row.iter_mut().enumerate() {
+                *entry = self.entries[j][i]
             }
         }
         Matrix::from(result_entries)
     }
 
     pub fn determinant(&self) -> Result<T, Error> {
-        todo!()
+        Err(Error::UnsupportedOperation {
+            operation: "determinant",
+        })
     }
 
     pub fn inverse(&self) -> Result<Matrix<T, N, M>, Error> {
-        todo!()
+        Err(Error::UnsupportedOperation {
+            operation: "inverse",
+        })
     }
     // pub fn from_transformed_unit_vectors() -> Self {}
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComputeBackendPreference {
+    Auto,
+    Cpu,
+    Gpu,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComputeBackend {
+    Cpu,
+    Gpu,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ComputeOptions {
+    pub preference: ComputeBackendPreference,
+    pub allow_fallback: bool,
+}
+
+impl ComputeOptions {
+    pub fn auto() -> Self {
+        Self {
+            preference: ComputeBackendPreference::Auto,
+            allow_fallback: true,
+        }
+    }
+
+    pub fn cpu() -> Self {
+        Self {
+            preference: ComputeBackendPreference::Cpu,
+            allow_fallback: false,
+        }
+    }
+
+    pub fn gpu() -> Self {
+        Self {
+            preference: ComputeBackendPreference::Gpu,
+            allow_fallback: false,
+        }
+    }
+
+    pub fn with_fallback(mut self, allow_fallback: bool) -> Self {
+        self.allow_fallback = allow_fallback;
+        self
+    }
+}
+
+impl Default for ComputeOptions {
+    fn default() -> Self {
+        Self {
+            preference: ComputeBackendPreference::Cpu,
+            allow_fallback: false,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ComputeOutput<const M: usize, const K: usize> {
+    pub matrix: Matrix<f32, M, K>,
+    pub backend: ComputeBackend,
+}
+
 impl<const M: usize, const N: usize> Matrix<f32, M, N> {
+    pub fn multiply<const K: usize>(
+        &self,
+        other: &Matrix<f32, N, K>,
+    ) -> Result<Matrix<f32, M, K>, Error> {
+        self.multiply_with(other, ComputeOptions::default())
+            .map(|output| output.matrix)
+    }
+
+    pub fn multiply_with<const K: usize>(
+        &self,
+        other: &Matrix<f32, N, K>,
+        options: ComputeOptions,
+    ) -> Result<ComputeOutput<M, K>, Error> {
+        match options.preference {
+            ComputeBackendPreference::Cpu => Ok(ComputeOutput {
+                matrix: self * other,
+                backend: ComputeBackend::Cpu,
+            }),
+            ComputeBackendPreference::Gpu => self.gpu_multiply(other).map(|matrix| ComputeOutput {
+                matrix,
+                backend: ComputeBackend::Gpu,
+            }),
+            ComputeBackendPreference::Auto => match self.gpu_multiply(other) {
+                Ok(matrix) => Ok(ComputeOutput {
+                    matrix,
+                    backend: ComputeBackend::Gpu,
+                }),
+                Err(_err) if options.allow_fallback => Ok(ComputeOutput {
+                    matrix: self * other,
+                    backend: ComputeBackend::Cpu,
+                }),
+                Err(err) => Err(err),
+            },
+        }
+    }
+
     pub fn gpu_multiply<const K: usize>(
         &self,
         other: &Matrix<f32, N, K>,
@@ -143,18 +245,19 @@ impl<const M: usize, const N: usize> Matrix<f32, M, N> {
             let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
             path.push("shaders");
             path.push("shaders.metallib");
-            let library = device
-                .new_library_with_file(&path)
-                .map_err(|source| Error::MetalLibraryLoad {
-                    path: path.display().to_string(),
-                    message: source.to_string(),
-                })?;
-            let kernel = library.get_function("matrix_multiply", None).map_err(|source| {
-                Error::MetalFunctionLoad {
+            let library =
+                device
+                    .new_library_with_file(&path)
+                    .map_err(|source| Error::MetalLibraryLoad {
+                        path: path.display().to_string(),
+                        message: source.to_string(),
+                    })?;
+            let kernel = library
+                .get_function("matrix_multiply", None)
+                .map_err(|source| Error::MetalFunctionLoad {
                     function: "matrix_multiply".to_string(),
                     message: source.to_string(),
-                }
-            })?;
+                })?;
 
             // Set up pipeline state
             let pipeline_state = device
@@ -211,7 +314,7 @@ impl<const M: usize, const N: usize> Matrix<f32, M, N> {
             let h = pipeline_state.max_total_threads_per_threadgroup() / w;
 
             // Set specifications for threads
-            let threads_per_threadgroup = MTLSize::new(w as u64, h as u64, 1);
+            let threads_per_threadgroup = MTLSize::new(w, h, 1);
             let threads_per_grid = MTLSize::new(K as u64, M as u64, 1);
             compute_encoder.dispatch_threads(threads_per_grid, threads_per_threadgroup);
 
@@ -259,8 +362,8 @@ impl<T: Numeric, const M: usize> Matrix<T, M, M> {
         Self {
             entries: Box::new({
                 let mut unit = [[T::add_idnt(); M]; M];
-                for i in 0..M {
-                    unit[i][i] = T::mul_idnt();
+                for (i, row) in unit.iter_mut().enumerate() {
+                    row[i] = T::mul_idnt();
                 }
                 unit
             }),
@@ -277,13 +380,13 @@ impl<T: Numeric, const M: usize, const N: usize, const K: usize> std::ops::Mul<&
     /// Multiply matrices together
     fn mul(self, other: &Matrix<T, N, K>) -> Self::Output {
         let mut res_entries = [[T::default(); K]; M];
-        for i in 0..M {
-            for j in 0..K {
+        for (i, row) in res_entries.iter_mut().enumerate() {
+            for (j, entry) in row.iter_mut().enumerate() {
                 let mut sum = T::add_idnt();
                 for k in 0..N {
                     sum += self.entries[i][k] * other.entries[k][j]
                 }
-                res_entries[i][j] = sum;
+                *entry = sum;
             }
         }
 
@@ -301,9 +404,9 @@ impl<T: Numeric, const M: usize, const N: usize> std::ops::Add<&Matrix<T, M, N>>
     /// Add matrices together
     fn add(self, other: &Matrix<T, M, N>) -> Self::Output {
         let mut res_entries = [[T::default(); N]; M];
-        for i in 0..M {
-            for j in 0..N {
-                res_entries[i][j] = self.entries[i][j] + other.entries[i][j]
+        for (i, row) in res_entries.iter_mut().enumerate() {
+            for (j, entry) in row.iter_mut().enumerate() {
+                *entry = self.entries[i][j] + other.entries[i][j]
             }
         }
 
@@ -321,9 +424,9 @@ impl<T: Numeric, const M: usize, const N: usize> std::ops::Sub<&Matrix<T, M, N>>
     /// Add matrices together
     fn sub(self, other: &Matrix<T, M, N>) -> Self::Output {
         let mut res_entries = [[T::default(); N]; M];
-        for i in 0..M {
-            for j in 0..N {
-                res_entries[i][j] = self.entries[i][j] - other.entries[i][j]
+        for (i, row) in res_entries.iter_mut().enumerate() {
+            for (j, entry) in row.iter_mut().enumerate() {
+                *entry = self.entries[i][j] - other.entries[i][j]
             }
         }
 
@@ -337,10 +440,14 @@ use std::fmt;
 impl<T: Numeric, const M: usize, const N: usize> fmt::Debug for Matrix<T, M, N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for row in &*self.entries {
+            if row.is_empty() {
+                writeln!(f)?;
+                continue;
+            }
             for e in &row[..row.len() - 1] {
                 write!(f, "{:?} ", e)?;
             }
-            write!(f, "{:?}\n", row[row.len() - 1])?;
+            writeln!(f, "{:?}", row[row.len() - 1])?;
         }
         Ok(())
     }
@@ -364,10 +471,9 @@ pub enum Error {
     #[error("Failed to load Metal library from '{path}': {message}")]
     MetalLibraryLoad { path: String, message: String },
     #[error("Failed to load Metal function '{function}': {message}")]
-    MetalFunctionLoad {
-        function: String,
-        message: String,
-    },
+    MetalFunctionLoad { function: String, message: String },
     #[error("Failed to create Metal compute pipeline: {message}")]
     MetalPipelineCreation { message: String },
+    #[error("Operation '{operation}' is not implemented for this matrix type")]
+    UnsupportedOperation { operation: &'static str },
 }

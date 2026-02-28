@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use ndarray::arr2;
 
-use matrix_test::matrix::Matrix;
+use matrix_test::matrix::{ComputeOptions, Matrix};
 
 use std::time::Duration;
 
@@ -14,12 +14,28 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("matrix multiplication");
     group.measurement_time(Duration::from_secs(10));
 
-    group.bench_function("gpu matrix multiply", |b| {
-        b.iter(|| black_box(mat2.gpu_multiply(&mat2)))
-    });
+    let gpu_options = ComputeOptions::gpu();
+    if mat2.multiply_with(&mat2, gpu_options).is_ok() {
+        group.bench_function("gpu matrix multiply", |b| {
+            b.iter(|| {
+                black_box(
+                    mat2.multiply_with(&mat2, gpu_options)
+                        .expect("GPU benchmark preflight should guarantee availability"),
+                )
+            })
+        });
+    } else {
+        eprintln!("Skipping GPU benchmark: Metal backend unavailable");
+    }
 
-    group.bench_function("naive matrix multiply", |b| {
-        b.iter(|| black_box(&mat1) * black_box(&mat2))
+    let cpu_options = ComputeOptions::cpu();
+    group.bench_function("cpu matrix multiply", |b| {
+        b.iter(|| {
+            black_box(
+                mat1.multiply_with(&mat2, cpu_options)
+                    .expect("CPU backend path should be infallible"),
+            )
+        })
     });
 
     group.bench_function("ndarray multiply", |b| b.iter(|| mata.dot(&matb)));

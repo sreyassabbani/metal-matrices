@@ -41,8 +41,8 @@ impl<T: Numeric, const N: usize> std::ops::Add for Vector<T, N> {
     /// Pairwise addition through each entry of [`Vector<T, N>`]
     fn add(self, other: Self) -> Self::Output {
         let mut entries = [T::add_idnt(); N];
-        for i in 0..N {
-            entries[i] = self.entries[i] + other.entries[i];
+        for (i, entry) in entries.iter_mut().enumerate() {
+            *entry = self.entries[i] + other.entries[i];
         }
         Vector::from(entries)
     }
