@@ -37,10 +37,19 @@
           RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}/lib/rustlib/src/rust/library";
 
           shellHook = ''
+            export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
+            if [ ! -d "$UV_PROJECT_ENVIRONMENT" ]; then
+              echo "Creating Python virtual environment with uv at $UV_PROJECT_ENVIRONMENT"
+              uv venv "$UV_PROJECT_ENVIRONMENT"
+            fi
+            source "$UV_PROJECT_ENVIRONMENT/bin/activate"
+
             echo "Nix dev shell activated"
             echo "rustc: $(rustc --version 2>/dev/null || echo 'not found')"
             echo "cargo: $(cargo --version 2>/dev/null || echo 'not found')"
             echo "rust-analyzer: $(rust-analyzer --version 2>/dev/null || echo 'not found')"
+            echo "python: $(python --version 2>/dev/null || echo 'not found')"
+            echo "uv: $(uv --version 2>/dev/null || echo 'not found')"
           '';
         };
       }
