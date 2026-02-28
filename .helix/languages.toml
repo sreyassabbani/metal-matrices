@@ -1,7 +1,12 @@
-[language-server.sourcekit-lsp]
-command = "sourcekit-lsp"
-
 [[language]]
 name = "cpp"
 file-types = ["cc", "cpp", "cxx", "hh", "hpp", "hxx", "h", "inl", "metal"]
-language-servers = ["clangd", "sourcekit-lsp"]
+language-servers = ["clangd"]
+
+[language.formatter]
+command = "xcrun"
+args = ["clang-format", "--style=file"]
+
+[language.indent]
+tab-width = 4
+unit = "    "
