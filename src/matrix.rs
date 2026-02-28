@@ -189,163 +189,240 @@ impl Default for ComputeOptions {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackendCapabilities {
+    pub cpu: bool,
+    pub gpu: bool,
+}
+
 #[derive(Debug, PartialEq)]
-pub struct ComputeOutput<const M: usize, const K: usize> {
-    pub matrix: Matrix<f32, M, K>,
+pub struct ComputeOutput<T: Numeric, const M: usize, const K: usize> {
+    pub matrix: Matrix<T, M, K>,
     pub backend: ComputeBackend,
 }
 
-impl<const M: usize, const N: usize> Matrix<f32, M, N> {
+#[doc(hidden)]
+pub trait ComputeScalar: Numeric + 'static {
+    const GPU_CAPABLE: bool;
+
+    fn gpu_multiply<const M: usize, const N: usize, const K: usize>(
+        lhs: &Matrix<Self, M, N>,
+        rhs: &Matrix<Self, N, K>,
+    ) -> Result<Matrix<Self, M, K>, Error>
+    where
+        Self: Sized;
+}
+
+macro_rules! impl_cpu_only_scalar {
+    ($($t:ty),* $(,)?) => {
+        $(
+            impl ComputeScalar for $t {
+                const GPU_CAPABLE: bool = false;
+
+                fn gpu_multiply<const M: usize, const N: usize, const K: usize>(
+                    _lhs: &Matrix<Self, M, N>,
+                    _rhs: &Matrix<Self, N, K>,
+                ) -> Result<Matrix<Self, M, K>, Error> {
+                    Err(Error::GpuUnsupportedScalar {
+                        scalar: std::any::type_name::<Self>(),
+                    })
+                }
+            }
+        )*
+    };
+}
+
+impl_cpu_only_scalar!(f64, i64, i32, i16, i8, u64, u32, u16, u8);
+
+impl ComputeScalar for f32 {
+    const GPU_CAPABLE: bool = true;
+
+    fn gpu_multiply<const M: usize, const N: usize, const K: usize>(
+        lhs: &Matrix<Self, M, N>,
+        rhs: &Matrix<Self, N, K>,
+    ) -> Result<Matrix<Self, M, K>, Error> {
+        gpu_multiply_f32(lhs, rhs)
+    }
+}
+
+impl<T: ComputeScalar, const M: usize, const N: usize> Matrix<T, M, N> {
+    pub fn backend_capabilities() -> BackendCapabilities {
+        BackendCapabilities {
+            cpu: true,
+            gpu: T::GPU_CAPABLE,
+        }
+    }
+
+    pub fn multiply_cpu<const K: usize>(&self, other: &Matrix<T, N, K>) -> Matrix<T, M, K> {
+        self * other
+    }
+
     pub fn multiply<const K: usize>(
         &self,
-        other: &Matrix<f32, N, K>,
-    ) -> Result<Matrix<f32, M, K>, Error> {
+        other: &Matrix<T, N, K>,
+    ) -> Result<Matrix<T, M, K>, Error> {
         self.multiply_with(other, ComputeOptions::default())
             .map(|output| output.matrix)
     }
 
     pub fn multiply_with<const K: usize>(
         &self,
-        other: &Matrix<f32, N, K>,
+        other: &Matrix<T, N, K>,
         options: ComputeOptions,
-    ) -> Result<ComputeOutput<M, K>, Error> {
+    ) -> Result<ComputeOutput<T, M, K>, Error> {
         match options.preference {
             ComputeBackendPreference::Cpu => Ok(ComputeOutput {
-                matrix: self * other,
+                matrix: self.multiply_cpu(other),
                 backend: ComputeBackend::Cpu,
             }),
-            ComputeBackendPreference::Gpu => self.gpu_multiply(other).map(|matrix| ComputeOutput {
-                matrix,
-                backend: ComputeBackend::Gpu,
-            }),
-            ComputeBackendPreference::Auto => match self.gpu_multiply(other) {
+            ComputeBackendPreference::Gpu => match T::gpu_multiply(self, other) {
                 Ok(matrix) => Ok(ComputeOutput {
                     matrix,
                     backend: ComputeBackend::Gpu,
                 }),
                 Err(_err) if options.allow_fallback => Ok(ComputeOutput {
-                    matrix: self * other,
+                    matrix: self.multiply_cpu(other),
                     backend: ComputeBackend::Cpu,
                 }),
                 Err(err) => Err(err),
             },
+            ComputeBackendPreference::Auto => {
+                if !T::GPU_CAPABLE {
+                    return Ok(ComputeOutput {
+                        matrix: self.multiply_cpu(other),
+                        backend: ComputeBackend::Cpu,
+                    });
+                }
+
+                match T::gpu_multiply(self, other) {
+                    Ok(matrix) => Ok(ComputeOutput {
+                        matrix,
+                        backend: ComputeBackend::Gpu,
+                    }),
+                    Err(_err) if options.allow_fallback => Ok(ComputeOutput {
+                        matrix: self.multiply_cpu(other),
+                        backend: ComputeBackend::Cpu,
+                    }),
+                    Err(err) => Err(err),
+                }
+            }
         }
     }
+}
 
-    pub fn gpu_multiply<const K: usize>(
-        &self,
-        other: &Matrix<f32, N, K>,
-    ) -> Result<Matrix<f32, M, K>, Error> {
-        let result_entries = autoreleasepool(|| -> Result<Box<[[f32; K]; M]>, Error> {
-            // Set up GPU and command queue
-            let device = Device::system_default().ok_or(Error::NoMetalDevice)?;
-            let queue = device.new_command_queue();
+fn gpu_multiply_f32<const M: usize, const N: usize, const K: usize>(
+    lhs: &Matrix<f32, M, N>,
+    rhs: &Matrix<f32, N, K>,
+) -> Result<Matrix<f32, M, K>, Error> {
+    let result_entries = autoreleasepool(|| -> Result<Box<[[f32; K]; M]>, Error> {
+        // Set up GPU and command queue
+        let device = Device::system_default().ok_or(Error::NoMetalDevice)?;
+        let queue = device.new_command_queue();
 
-            // Load the metal compute shader
-            let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            path.push("shaders");
-            path.push("shaders.metallib");
-            let library =
-                device
-                    .new_library_with_file(&path)
-                    .map_err(|source| Error::MetalLibraryLoad {
-                        path: path.display().to_string(),
-                        message: source.to_string(),
-                    })?;
-            let kernel = library
-                .get_function("matrix_multiply", None)
-                .map_err(|source| Error::MetalFunctionLoad {
-                    function: "matrix_multiply".to_string(),
+        // Load the metal compute shader
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("shaders");
+        path.push("shaders.metallib");
+        let library =
+            device
+                .new_library_with_file(&path)
+                .map_err(|source| Error::MetalLibraryLoad {
+                    path: path.display().to_string(),
                     message: source.to_string(),
                 })?;
+        let kernel = library
+            .get_function("matrix_multiply", None)
+            .map_err(|source| Error::MetalFunctionLoad {
+                function: "matrix_multiply".to_string(),
+                message: source.to_string(),
+            })?;
 
-            // Set up pipeline state
-            let pipeline_state = device
-                .new_compute_pipeline_state_with_function(&kernel)
-                .map_err(|source| Error::MetalPipelineCreation {
-                    message: source.to_string(),
-                })?;
+        // Set up pipeline state
+        let pipeline_state = device
+            .new_compute_pipeline_state_with_function(&kernel)
+            .map_err(|source| Error::MetalPipelineCreation {
+                message: source.to_string(),
+            })?;
 
-            // Create buffers with data for initial matrices
-            let buffer_a = device.new_buffer_with_data(
-                self.entries.as_ptr() as *const f32 as *const _,
-                (M * N * mem::size_of::<f32>()) as u64,
-                MTLResourceOptions::StorageModeShared,
-            );
-            let buffer_b = device.new_buffer_with_data(
-                other.entries.as_ptr() as *const f32 as *const _,
-                (N * K * mem::size_of::<f32>()) as u64,
-                MTLResourceOptions::StorageModeShared,
-            );
+        // Create buffers with data for initial matrices
+        let buffer_a = device.new_buffer_with_data(
+            lhs.entries.as_ptr() as *const f32 as *const _,
+            (M * N * mem::size_of::<f32>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let buffer_b = device.new_buffer_with_data(
+            rhs.entries.as_ptr() as *const f32 as *const _,
+            (N * K * mem::size_of::<f32>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
 
-            // Empty buffer for resultant matrix
-            let buffer_result = device.new_buffer(
-                (M * K * mem::size_of::<f32>()) as u64,
-                MTLResourceOptions::StorageModeShared,
-            );
+        // Empty buffer for resultant matrix
+        let buffer_result = device.new_buffer(
+            (M * K * mem::size_of::<f32>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
 
-            // Create a command buffer and compute encoder
-            let cmd_buf = queue.new_command_buffer();
-            let compute_encoder = cmd_buf.new_compute_command_encoder();
+        // Create a command buffer and compute encoder
+        let cmd_buf = queue.new_command_buffer();
+        let compute_encoder = cmd_buf.new_compute_command_encoder();
 
-            // Set the pipeline state and buffers
-            compute_encoder.set_compute_pipeline_state(&pipeline_state);
-            // compute_encoder.set_buffers(
-            //     0,
-            //     &[Some(&buffer_a), Some(&buffer_b), Some(&buffer_result)],
-            //     &[0, 2],
-            // );
-            compute_encoder.set_buffer(0, Some(&buffer_a), 0);
-            compute_encoder.set_buffer(1, Some(&buffer_b), 0);
-            compute_encoder.set_buffer(2, Some(&buffer_result), 0);
+        // Set the pipeline state and buffers
+        compute_encoder.set_compute_pipeline_state(&pipeline_state);
+        // compute_encoder.set_buffers(
+        //     0,
+        //     &[Some(&buffer_a), Some(&buffer_b), Some(&buffer_result)],
+        //     &[0, 2],
+        // );
+        compute_encoder.set_buffer(0, Some(&buffer_a), 0);
+        compute_encoder.set_buffer(1, Some(&buffer_b), 0);
+        compute_encoder.set_buffer(2, Some(&buffer_result), 0);
 
-            // Set constants for matrix dimensions
-            use std::ffi::c_void;
-            let m = &(M as u32) as *const u32 as *const c_void;
-            let n = &(N as u32) as *const u32 as *const c_void;
-            let k = &(K as u32) as *const u32 as *const c_void;
-            let b_size = mem::size_of::<u32>() as u64;
-            compute_encoder.set_bytes(3, b_size, m);
-            compute_encoder.set_bytes(4, b_size, n);
-            compute_encoder.set_bytes(5, b_size, k);
+        // Set constants for matrix dimensions
+        use std::ffi::c_void;
+        let m = &(M as u32) as *const u32 as *const c_void;
+        let n = &(N as u32) as *const u32 as *const c_void;
+        let k = &(K as u32) as *const u32 as *const c_void;
+        let b_size = mem::size_of::<u32>() as u64;
+        compute_encoder.set_bytes(3, b_size, m);
+        compute_encoder.set_bytes(4, b_size, n);
+        compute_encoder.set_bytes(5, b_size, k);
 
-            // Set grid size
-            let w = pipeline_state.thread_execution_width();
-            let h = pipeline_state.max_total_threads_per_threadgroup() / w;
+        // Set grid size
+        let w = pipeline_state.thread_execution_width();
+        let h = pipeline_state.max_total_threads_per_threadgroup() / w;
 
-            // Set specifications for threads
-            let threads_per_threadgroup = MTLSize::new(w, h, 1);
-            let threads_per_grid = MTLSize::new(K as u64, M as u64, 1);
-            compute_encoder.dispatch_threads(threads_per_grid, threads_per_threadgroup);
+        // Set specifications for threads
+        let threads_per_threadgroup = MTLSize::new(w, h, 1);
+        let threads_per_grid = MTLSize::new(K as u64, M as u64, 1);
+        compute_encoder.dispatch_threads(threads_per_grid, threads_per_threadgroup);
 
-            // Finalize encoding and commit the command buffer
-            compute_encoder.end_encoding();
-            cmd_buf.commit();
-            cmd_buf.wait_until_completed();
+        // Finalize encoding and commit the command buffer
+        compute_encoder.end_encoding();
+        cmd_buf.commit();
+        cmd_buf.wait_until_completed();
 
-            let result_ptr = buffer_result.contents() as *const f32;
+        let result_ptr = buffer_result.contents() as *const f32;
 
-            let size = M * K;
-            // ??
-            let result_entries = unsafe {
-                // Allocate uninitialized memory for the 2D array
-                let mut uninit_array: Box<std::mem::MaybeUninit<[[f32; K]; M]>> = Box::new_uninit();
-                let ptr = uninit_array.as_mut_ptr() as *mut f32;
+        let size = M * K;
+        // ??
+        let result_entries = unsafe {
+            // Allocate uninitialized memory for the 2D array
+            let mut uninit_array: Box<std::mem::MaybeUninit<[[f32; K]; M]>> = Box::new_uninit();
+            let ptr = uninit_array.as_mut_ptr() as *mut f32;
 
-                // Copy data from the raw pointer into the allocated memory
-                std::ptr::copy_nonoverlapping(result_ptr, ptr, size);
+            // Copy data from the raw pointer into the allocated memory
+            std::ptr::copy_nonoverlapping(result_ptr, ptr, size);
 
-                // Convert the uninitialized array to a fully initialized array
-                uninit_array.assume_init()
-            };
+            // Convert the uninitialized array to a fully initialized array
+            uninit_array.assume_init()
+        };
 
-            Ok(result_entries)
-        })?;
+        Ok(result_entries)
+    })?;
 
-        Ok(Matrix {
-            entries: result_entries,
-        })
-    }
+    Ok(Matrix {
+        entries: result_entries,
+    })
 }
 
 // Methods exclusive to square matrices
@@ -474,6 +551,8 @@ pub enum Error {
     MetalFunctionLoad { function: String, message: String },
     #[error("Failed to create Metal compute pipeline: {message}")]
     MetalPipelineCreation { message: String },
+    #[error("GPU backend is not supported for scalar type '{scalar}'")]
+    GpuUnsupportedScalar { scalar: &'static str },
     #[error("Operation '{operation}' is not implemented for this matrix type")]
     UnsupportedOperation { operation: &'static str },
 }

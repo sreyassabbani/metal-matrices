@@ -168,4 +168,50 @@ mod tests {
         assert!(mat.determinant().is_err());
         assert!(mat.inverse().is_err());
     }
+
+    #[test]
+    fn i8_auto_prefers_cpu_backend() {
+        let lhs = Matrix::<i8, 2, 2>::from([[1, 2], [3, 4]]);
+        let rhs = Matrix::<i8, 2, 2>::from([[5, 6], [7, 8]]);
+
+        let output = lhs
+            .multiply_with(&rhs, ComputeOptions::auto())
+            .expect("auto mode should always produce a result");
+
+        assert_eq!(output.backend, ComputeBackend::Cpu);
+        assert_eq!(
+            output.matrix,
+            Matrix::<i8, 2, 2>::from([[19, 22], [43, 50]])
+        );
+    }
+
+    #[test]
+    fn i8_gpu_without_fallback_errors() {
+        let lhs = Matrix::<i8, 2, 2>::from([[1, 2], [3, 4]]);
+        let rhs = Matrix::<i8, 2, 2>::from([[5, 6], [7, 8]]);
+
+        let err = lhs
+            .multiply_with(&rhs, ComputeOptions::gpu())
+            .expect_err("integer GPU path should be explicitly unsupported");
+        assert!(matches!(
+            err,
+            crate::matrix::Error::GpuUnsupportedScalar { .. }
+        ));
+    }
+
+    #[test]
+    fn i8_gpu_with_fallback_uses_cpu() {
+        let lhs = Matrix::<i8, 2, 2>::from([[1, 2], [3, 4]]);
+        let rhs = Matrix::<i8, 2, 2>::from([[5, 6], [7, 8]]);
+
+        let output = lhs
+            .multiply_with(&rhs, ComputeOptions::gpu().with_fallback(true))
+            .expect("fallback should keep integer multiplication available");
+
+        assert_eq!(output.backend, ComputeBackend::Cpu);
+        assert_eq!(
+            output.matrix,
+            Matrix::<i8, 2, 2>::from([[19, 22], [43, 50]])
+        );
+    }
 }

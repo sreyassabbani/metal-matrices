@@ -51,6 +51,24 @@ impl Numeric for i32 {
     }
 }
 
+impl Numeric for i16 {
+    fn mul_idnt() -> Self {
+        1_i16
+    }
+    fn add_idnt() -> Self {
+        0_i16
+    }
+}
+
+impl Numeric for i8 {
+    fn mul_idnt() -> Self {
+        1_i8
+    }
+    fn add_idnt() -> Self {
+        0_i8
+    }
+}
+
 impl Numeric for u64 {
     fn mul_idnt() -> Self {
         1_u64
@@ -66,5 +84,23 @@ impl Numeric for u32 {
     }
     fn add_idnt() -> Self {
         0_u32
+    }
+}
+
+impl Numeric for u16 {
+    fn mul_idnt() -> Self {
+        1_u16
+    }
+    fn add_idnt() -> Self {
+        0_u16
+    }
+}
+
+impl Numeric for u8 {
+    fn mul_idnt() -> Self {
+        1_u8
+    }
+    fn add_idnt() -> Self {
+        0_u8
     }
 }
