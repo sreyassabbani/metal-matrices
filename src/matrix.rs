@@ -38,13 +38,12 @@ where
 //     }
 // }
 
-// TODO: Use proper error handling
 impl<T: Numeric, const M: usize, const N: usize> Matrix<T, M, N> {
     /// Returns the null matrix of a given dimension
     ///
     /// ```rs
     /// let null_mat = Matrix::<i32, 3, 3>::null();
-    /// let expected = Matrix::new([0, 0, 0], [0, 0, 0], [0, 0, 0]);
+    /// let expected = Matrix::from([[0, 0, 0], [0, 0, 0], [0, 0, 0]]);
     ///
     /// assert_eq!(null_mat, expected);
     /// ```
@@ -58,7 +57,7 @@ impl<T: Numeric, const M: usize, const N: usize> Matrix<T, M, N> {
     ///
     /// ```rs
     /// let mat = Matrix::<i32, 3, 3>::from([[1, 2, 3], [42, 5, 6], [7, 8, 9]]);
-    /// let found = mat.get(2, 1);
+    /// let found = mat.get(1, 0);
     /// let expected = 42;
     ///
     /// assert_eq!(found, expected);
@@ -72,7 +71,7 @@ impl<T: Numeric, const M: usize, const N: usize> Matrix<T, M, N> {
                 col_max: N,
             });
         }
-        Ok(self.entries[col][row])
+        Ok(self.entries[row][col])
     }
 
     pub fn set(&mut self, row: usize, col: usize, val: T) -> Result<(), Error> {
@@ -84,24 +83,29 @@ impl<T: Numeric, const M: usize, const N: usize> Matrix<T, M, N> {
                 col_max: N,
             });
         }
-        self.entries[col][row] = val;
+        self.entries[row][col] = val;
         Ok(())
     }
 
     /// Get the column [`Vector<T, M>`] at a given column. Note argument `col` is 0-indexed.
-    pub fn get_vector(&self, col: usize) -> Vector<T, M> {
+    pub fn get_vector(&self, col: usize) -> Result<Vector<T, M>, Error> {
+        if col >= N {
+            return Err(Error::ColumnOutOfBounds {
+                col_found: col,
+                col_max: N,
+            });
+        }
         let mut entries = [T::default(); M];
         for i in 0..M {
-            println!("{:?}", self.entries[i]);
             entries[i] = self.entries[i][col];
         }
-        Vector::from(entries)
+        Ok(Vector::from(entries))
     }
 
     /// Returns the transpose of the given matrix
     ///
     /// ```rs
-    /// let m = Matrix::new(entries);
+    /// let m = Matrix::from(entries);
     /// let t = m.transpose();
     /// ```
     /// Note `t` and `m` will be of different types if `m` if not square.
@@ -126,24 +130,38 @@ impl<T: Numeric, const M: usize, const N: usize> Matrix<T, M, N> {
 }
 
 impl<const M: usize, const N: usize> Matrix<f32, M, N> {
-    pub fn gpu_multiply<const K: usize>(&self, other: &Matrix<f32, N, K>) -> Matrix<f32, M, K> {
-        let mut result_entries: Box<[[f32; K]; M]> = Box::new([[0_f32; K]; M]);
-        autoreleasepool(|| {
+    pub fn gpu_multiply<const K: usize>(
+        &self,
+        other: &Matrix<f32, N, K>,
+    ) -> Result<Matrix<f32, M, K>, Error> {
+        let result_entries = autoreleasepool(|| -> Result<Box<[[f32; K]; M]>, Error> {
             // Set up GPU and command queue
-            let device = &Device::system_default().expect("No default device");
+            let device = Device::system_default().ok_or(Error::NoMetalDevice)?;
             let queue = device.new_command_queue();
 
             // Load the metal compute shader
             let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
             path.push("shaders");
             path.push("shaders.metallib");
-            let library = device.new_library_with_file(path).unwrap();
-            let kernel = library.get_function("matrix_multiply", None).unwrap();
+            let library = device
+                .new_library_with_file(&path)
+                .map_err(|source| Error::MetalLibraryLoad {
+                    path: path.display().to_string(),
+                    message: source.to_string(),
+                })?;
+            let kernel = library.get_function("matrix_multiply", None).map_err(|source| {
+                Error::MetalFunctionLoad {
+                    function: "matrix_multiply".to_string(),
+                    message: source.to_string(),
+                }
+            })?;
 
             // Set up pipeline state
             let pipeline_state = device
                 .new_compute_pipeline_state_with_function(&kernel)
-                .unwrap();
+                .map_err(|source| Error::MetalPipelineCreation {
+                    message: source.to_string(),
+                })?;
 
             // Create buffers with data for initial matrices
             let buffer_a = device.new_buffer_with_data(
@@ -206,7 +224,7 @@ impl<const M: usize, const N: usize> Matrix<f32, M, N> {
 
             let size = M * K;
             // ??
-            result_entries = unsafe {
+            let result_entries = unsafe {
                 // Allocate uninitialized memory for the 2D array
                 let mut uninit_array: Box<std::mem::MaybeUninit<[[f32; K]; M]>> = Box::new_uninit();
                 let ptr = uninit_array.as_mut_ptr() as *mut f32;
@@ -217,11 +235,13 @@ impl<const M: usize, const N: usize> Matrix<f32, M, N> {
                 // Convert the uninitialized array to a fully initialized array
                 uninit_array.assume_init()
             };
-        });
 
-        Matrix {
+            Ok(result_entries)
+        })?;
+
+        Ok(Matrix {
             entries: result_entries,
-        }
+        })
     }
 }
 
@@ -232,7 +252,7 @@ impl<T: Numeric, const M: usize> Matrix<T, M, M> {
     /// # Example
     /// ```rs
     /// let identity = Matrix::<i32, 2, 2>::identity();
-    /// let expected = Matrix::new([[1, 0], [0, 1]]);
+    /// let expected = Matrix::from([[1, 0], [0, 1]]);
     /// assert_eq!(identity, expected);
     /// ```
     pub fn identity() -> Self {
@@ -335,4 +355,19 @@ pub enum Error {
         col_found: usize,
         col_max: usize,
     },
+    #[error(
+        "Accessing column index out of bounds of matrix dimensions: got column {col_found} when number of columns is {col_max}"
+    )]
+    ColumnOutOfBounds { col_found: usize, col_max: usize },
+    #[error("No Metal device available on this machine")]
+    NoMetalDevice,
+    #[error("Failed to load Metal library from '{path}': {message}")]
+    MetalLibraryLoad { path: String, message: String },
+    #[error("Failed to load Metal function '{function}': {message}")]
+    MetalFunctionLoad {
+        function: String,
+        message: String,
+    },
+    #[error("Failed to create Metal compute pipeline: {message}")]
+    MetalPipelineCreation { message: String },
 }

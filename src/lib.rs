@@ -4,7 +4,7 @@ pub mod vector;
 
 #[cfg(test)]
 mod tests {
-    use crate::matrix::Matrix;
+    use crate::{matrix::Matrix, vector::Vector};
     type FSquareMatrix<const M: usize> = Matrix<f64, M, M>;
     type FMatrix<const M: usize, const N: usize> = Matrix<f64, M, N>;
 
@@ -75,5 +75,43 @@ mod tests {
         ]);
 
         assert_eq!(&mat1 + &mat2, expected);
+    }
+
+    #[test]
+    fn get_matrix_entry() {
+        let mat = FMatrix::<3, 3>::from([[1.0, 2.0, 3.0], [42.0, 5.0, 6.0], [7.0, 8.0, 9.0]]);
+
+        assert_eq!(mat.get(1, 0).unwrap(), 42.0);
+    }
+
+    #[test]
+    fn set_matrix_entry() {
+        let mut mat = FMatrix::<2, 2>::from([[1.0, 2.0], [3.0, 4.0]]);
+        mat.set(0, 1, 20.0).unwrap();
+
+        assert_eq!(mat.get(0, 1).unwrap(), 20.0);
+        assert_eq!(mat, FMatrix::<2, 2>::from([[1.0, 20.0], [3.0, 4.0]]));
+    }
+
+    #[test]
+    fn get_out_of_bounds_returns_error() {
+        let mat = FMatrix::<2, 2>::from([[1.0, 2.0], [3.0, 4.0]]);
+
+        assert!(mat.get(2, 0).is_err());
+        assert!(mat.get(0, 2).is_err());
+    }
+
+    #[test]
+    fn get_vector_returns_column() {
+        let mat = FMatrix::<3, 3>::from([[1.0, 2.0, 3.0], [42.0, 5.0, 6.0], [7.0, 8.0, 9.0]]);
+
+        assert_eq!(mat.get_vector(0).unwrap(), Vector::from([1.0, 42.0, 7.0]));
+    }
+
+    #[test]
+    fn get_vector_out_of_bounds_returns_error() {
+        let mat = FMatrix::<3, 2>::from([[1.0, 2.0], [42.0, 5.0], [7.0, 8.0]]);
+
+        assert!(mat.get_vector(2).is_err());
     }
 }
