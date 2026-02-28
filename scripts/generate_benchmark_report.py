@@ -111,7 +111,7 @@ def format_ns(value: float) -> str:
     if value >= 1_000_000.0:
         return f"{value / 1_000_000.0:.3f} ms"
     if value >= 1_000.0:
-        return f"{value / 1_000.0:.3f} us"
+        return f"{value / 1_000.0:.3f} µs"
     return f"{value:.3f} ns"
 
 
@@ -131,6 +131,7 @@ def render_markdown(
     rows = []
     for s in sorted(stats, key=lambda x: (x.name != baseline_name, x.mean_ns)):
         speed = baseline.mean_ns / s.mean_ns
+        ci_half_width_ns = (s.ci_high_ns - s.ci_low_ns) / 2.0
         if s.name == baseline_name:
             p_value = "-"
             significant = "-"
@@ -153,7 +154,7 @@ def render_markdown(
                 [
                     s.name,
                     str(s.n),
-                    f"{format_ns(s.mean_ns)} ({format_ns(s.ci_low_ns)} to {format_ns(s.ci_high_ns)})",
+                    f"{format_ns(s.mean_ns)} ± {format_ns(ci_half_width_ns)}",
                     format_ns(s.std_dev_ns),
                     f"{speed:.3f}x",
                     p_value,
@@ -174,7 +175,7 @@ def render_markdown(
             f"- Baseline: `{baseline_name}`",
             f"- Significance: permutation test on per-sample ns/op (`alpha={alpha}`, `reps={permutation_reps}`)",
             "",
-            "| Benchmark | n | Mean (95% CI) | Std dev | Speed vs baseline | p-value vs baseline | Significant | Cliff's delta |",
+            "| Benchmark | n | μ ± 95% CI | σ | Speed vs baseline | p-value vs baseline | Significant | Cliff's delta |",
             "| --- | ---: | --- | ---: | ---: | ---: | ---: | --- |",
             *rows,
             "",

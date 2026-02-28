@@ -23,3 +23,5 @@ Just a fun project I've been working on. I'm using the `metal-rs` crate to inter
 - Run `just bench-report` to execute Criterion benchmarks and generate a condensed statistical Markdown table.
 - Output file: `docs/benchmark-comparison.md`.
 - The report includes mean latency with 95% CI, relative speedup vs baseline, permutation-test p-values, and Cliff's delta effect size.
+- Run `just bench-scaling-plots` to benchmark multiple matrix sizes and generate plots + Markdown summary.
+- Outputs: `docs/benchmark-scaling.md` and `docs/plots/matrix-scaling-*.png`.

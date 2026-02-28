@@ -14,3 +14,7 @@ criterion = { version = "0.5", features = ["html_reports"] }
 [[bench]]
 name = "matrix_multiplication"
 harness = false
+
+[[bench]]
+name = "matrix_scaling"
+harness = false

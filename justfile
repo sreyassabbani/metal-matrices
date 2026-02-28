@@ -51,5 +51,14 @@ clean:
 
 bench-report:
     #!/usr/bin/env bash
-    uv run --python "${VIRTUAL_ENV:-$PWD/.venv}/bin/python" python scripts/generate_benchmark_report.py
+    uv run --quiet --python "${VIRTUAL_ENV:-$PWD/.venv}/bin/python" python scripts/generate_benchmark_report.py
     echo "Wrote docs/benchmark-comparison.md"
+
+bench-scaling:
+    #!/usr/bin/env bash
+    cargo bench --bench matrix_scaling
+
+bench-scaling-plots:
+    #!/usr/bin/env bash
+    uv run --quiet --python "${VIRTUAL_ENV:-$PWD/.venv}/bin/python" --with matplotlib --with scienceplots python scripts/generate_scaling_plots.py
+    echo "Wrote docs/benchmark-scaling.md and docs/plots/*.png"

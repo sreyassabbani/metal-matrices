@@ -39,6 +39,29 @@ where
 // }
 
 impl<T: Numeric, const M: usize, const N: usize> Matrix<T, M, N> {
+    /// Build a matrix from a generator without allocating large temporary arrays on the stack.
+    pub fn from_fn<F>(mut f: F) -> Self
+    where
+        F: FnMut(usize, usize) -> T,
+    {
+        let mut uninit_entries: Box<std::mem::MaybeUninit<[[T; N]; M]>> = Box::new_uninit();
+        let base_ptr = uninit_entries.as_mut_ptr() as *mut T;
+        for row in 0..M {
+            for col in 0..N {
+                let idx = row * N + col;
+                unsafe {
+                    // SAFETY: `idx` is in-bounds for the contiguous `M * N` allocation.
+                    base_ptr.add(idx).write(f(row, col));
+                }
+            }
+        }
+
+        Self {
+            // SAFETY: every slot was initialized exactly once in the loops above.
+            entries: unsafe { uninit_entries.assume_init() },
+        }
+    }
+
     /// Returns the null matrix of a given dimension
     ///
     /// ```rs
