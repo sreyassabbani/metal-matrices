@@ -14,11 +14,11 @@ all:
     fi
 
     if ! metal_bin="$(xcrun -sdk macosx --find metal 2>/dev/null)"; then
-      echo "Unable to locate 'metal' via xcrun. Install Xcode Command Line Tools."
+      echo "Unable to locate 'metal' via xcrun. Install full Xcode and select it with xcode-select."
       exit 1
     fi
     if ! metallib_bin="$(xcrun -sdk macosx --find metallib 2>/dev/null)"; then
-      echo "Unable to locate 'metallib' via xcrun. Install Xcode Command Line Tools."
+      echo "Unable to locate 'metallib' via xcrun. Install full Xcode and select it with xcode-select."
       exit 1
     fi
 

@@ -31,6 +31,7 @@
             python312
             uv
             just
+            sourcekit-lsp
           ];
 
           RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}/lib/rustlib/src/rust/library";
