@@ -17,8 +17,18 @@ all:
       echo "Unable to locate 'metal' via xcrun. Install full Xcode and select it with xcode-select."
       exit 1
     fi
+    if ! "${metal_bin}" -help >/dev/null 2>&1; then
+      echo "Metal compiler found but Metal Toolchain is unavailable."
+      echo "Run: xcodebuild -runFirstLaunch"
+      echo "Then: xcodebuild -downloadComponent MetalToolchain"
+      echo "If download fails, inspect version with: xcodebuild -showComponent MetalToolchain -json"
+      exit 1
+    fi
     if ! metallib_bin="$(xcrun -sdk macosx --find metallib 2>/dev/null)"; then
-      echo "Unable to locate 'metallib' via xcrun. Install full Xcode and select it with xcode-select."
+      echo "Unable to locate 'metallib' via xcrun."
+      echo "This typically means the Metal Toolchain component is missing from Xcode."
+      echo "Run: xcodebuild -downloadComponent MetalToolchain"
+      echo "If needed, retry with: xcodebuild -downloadComponent MetalToolchain -buildVersion <value-from-showComponent>"
       exit 1
     fi
 
