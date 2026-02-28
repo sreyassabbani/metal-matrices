@@ -8,3 +8,5 @@ src/ignore.rs
 # Metal IRs and binaries
 shaders/*.metallib
 shaders/*.air
+
+.direnv
