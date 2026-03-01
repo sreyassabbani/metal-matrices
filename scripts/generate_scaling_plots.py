@@ -148,10 +148,11 @@ def generate_time_plot(points: list[Point], out_path: Path) -> None:
     ax.set_xlabel(r"Matrix Size $n$ ($n \times n$)")
     ax.set_ylabel("Mean Runtime (ms)")
     ax.set_title("Matrix Multiplication Scaling")
-    ax.set_xscale("log", base=2)
     ax.set_yscale("log")
     ax.set_xticks(xticks)
     ax.set_xticklabels([str(v) for v in xticks])
+    if xticks:
+        ax.set_xlim(min(xticks) - 20, max(xticks) + 20)
     ax.legend()
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -196,9 +197,10 @@ def generate_speedup_plot(points: list[Point], out_path: Path) -> None:
     ax.set_xlabel(r"Matrix Size $n$ ($n \times n$)")
     ax.set_ylabel(r"Speedup ($\times$)")
     ax.set_title("Relative Speedup vs CPU")
-    ax.set_xscale("log", base=2)
     ax.set_xticks(xticks)
     ax.set_xticklabels([str(v) for v in xticks])
+    if xticks:
+        ax.set_xlim(min(xticks) - 20, max(xticks) + 20)
     ax.legend()
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -213,24 +215,10 @@ def write_markdown(
     speedup_plot_path: Path,
 ) -> None:
     cpu_by_n = {p.n: p.mean_ns for p in points if p.backend == "cpu"}
-    ordered = sorted(points, key=lambda p: (p.n, {"cpu": 0, "gpu": 1, "ndarray": 2}[p.backend]))
-    rows: list[str] = []
-    for p in ordered:
-        ci_half = (p.ci_high_ns - p.ci_low_ns) / 2.0
-        speed = cpu_by_n[p.n] / p.mean_ns if p.n in cpu_by_n and p.mean_ns > 0 else 0.0
-        rows.append(
-            "| "
-            + " | ".join(
-                [
-                    str(p.n),
-                    p.backend,
-                    f"{format_ns(p.mean_ns)} ± {format_ns(ci_half)}",
-                    format_ns(p.std_dev_ns),
-                    f"{speed:.3f}x",
-                ]
-            )
-            + " |"
-        )
+    backend_rank = {"cpu": 0, "gpu": 1, "ndarray": 2}
+    by_n: dict[int, list[Point]] = {}
+    for p in points:
+        by_n.setdefault(p.n, []).append(p)
 
     ts = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     output_parent = output_path.parent.resolve()
@@ -248,15 +236,39 @@ def write_markdown(
             f"![Runtime vs n]({time_plot_rel.as_posix()})",
             "",
             f"![Speedup vs CPU]({speedup_plot_rel.as_posix()})",
-            "",
-            "| n | backend | μ ± 95% CI | σ | speedup vs cpu |",
-            "| ---: | --- | --- | ---: | ---: |",
-            *rows,
-            "",
-            "_Lower runtime is faster._",
-            "",
+            ""
         ]
     )
+
+    for n in sorted(by_n):
+        markdown += "\n".join(
+            [
+                f"## n = {n}",
+                "",
+                "| backend | μ ± 95% CI | σ | speedup vs cpu |",
+                "| --- | --- | ---: | ---: |",
+            ]
+        )
+        markdown += "\n"
+        for p in sorted(by_n[n], key=lambda point: backend_rank.get(point.backend, 99)):
+            ci_half = (p.ci_high_ns - p.ci_low_ns) / 2.0
+            speed = cpu_by_n[n] / p.mean_ns if n in cpu_by_n and p.mean_ns > 0 else 0.0
+            markdown += (
+                "| "
+                + " | ".join(
+                    [
+                        p.backend,
+                        f"{format_ns(p.mean_ns)} ± {format_ns(ci_half)}",
+                        format_ns(p.std_dev_ns),
+                        f"{speed:.3f}x",
+                    ]
+                )
+                + " |\n"
+            )
+        markdown += "\n"
+
+    markdown += "_Lower runtime is faster._\n"
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(markdown, encoding="utf-8")
 

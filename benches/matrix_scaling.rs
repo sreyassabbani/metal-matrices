@@ -62,8 +62,12 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.sample_size(30);
 
     bench_size::<128>(&mut group);
+    bench_size::<192>(&mut group);
     bench_size::<256>(&mut group);
+    bench_size::<320>(&mut group);
+    bench_size::<384>(&mut group);
     bench_size::<512>(&mut group);
+    bench_size::<768>(&mut group);
     bench_size::<1024>(&mut group);
 
     group.finish();
