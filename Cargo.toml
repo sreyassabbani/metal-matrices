@@ -19,3 +19,11 @@ harness = false
 [[bench]]
 name = "matrix_scaling"
 harness = false
+
+[[example]]
+name = "cpu_basics"
+path = "examples/cpu_basics.rs"
+
+[[example]]
+name = "metal_runtime"
+path = "examples/metal_runtime.rs"
