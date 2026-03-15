@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 thiserror = "2.0.11"
 metal = "0.31.0"
+objc = "0.2.7"
 ndarray = "0.16.1"
 
 [dev-dependencies]

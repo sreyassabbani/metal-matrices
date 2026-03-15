@@ -1,15 +1,32 @@
 pub mod matrix;
+pub mod metal;
 pub mod numeric;
 pub mod vector;
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        matrix::{ComputeBackend, ComputeOptions, Matrix},
+        matrix::{Matrix, MatrixError},
+        metal::{MetalError, MetalRuntime},
         vector::Vector,
     };
+
     type FSquareMatrix<const M: usize> = Matrix<f64, M, M>;
     type FMatrix<const M: usize, const N: usize> = Matrix<f64, M, N>;
+
+    #[test]
+    fn matrix_from_fn_builds_expected_entries() {
+        let matrix = Matrix::<i32, 2, 3>::from_fn(|row, col| (row as i32 * 10) + col as i32);
+
+        assert_eq!(matrix, Matrix::from([[0, 1, 2], [10, 11, 12]]));
+    }
+
+    #[test]
+    fn vector_from_fn_builds_expected_entries() {
+        let vector = Vector::<i32, 4>::from_fn(|idx| idx as i32 * 2);
+
+        assert_eq!(vector, Vector::from([0, 2, 4, 6]));
+    }
 
     #[test]
     fn mul_empty_matrices() {
@@ -26,7 +43,7 @@ mod tests {
         let mat2 = FSquareMatrix::<2>::from([[1.0, 3.0], [1.0, 2.0]]);
         let expected = FSquareMatrix::<2>::null();
 
-        assert_eq!(&mat1 * &mat2, expected);
+        assert_eq!(mat1.multiply(&mat2), expected);
     }
 
     #[test]
@@ -35,7 +52,7 @@ mod tests {
         let mat2 = FMatrix::from([[4.0, 2.0], [4.0, -1.0], [3.0, -2.0]]);
         let expected = FSquareMatrix::from([[12.0, 0.0], [29.0, -5.0]]);
 
-        assert_eq!(&mat1 * &mat2, expected);
+        assert_eq!(mat1.multiply(&mat2), expected);
     }
 
     #[test]
@@ -44,7 +61,7 @@ mod tests {
         let mat2 = FSquareMatrix::from([[5.0, 6.0], [7.0, 8.0]]);
         let expected = FSquareMatrix::from([[19.0, 22.0], [43.0, 50.0]]);
 
-        assert_eq!(&mat1 * &mat2, expected);
+        assert_eq!(mat1.multiply(&mat2), expected);
     }
 
     #[test]
@@ -81,6 +98,29 @@ mod tests {
     }
 
     #[test]
+    fn sub_nonsq_matrices() {
+        let mat1 = FMatrix::<2, 2>::from([[5.0, 4.0], [3.0, 2.0]]);
+        let mat2 = FMatrix::<2, 2>::from([[1.0, 1.5], [0.5, 2.0]]);
+
+        assert_eq!(&mat1 - &mat2, FMatrix::<2, 2>::from([[4.0, 2.5], [2.5, 0.0]]));
+    }
+
+    #[test]
+    fn transpose_returns_expected_matrix() {
+        let mat = Matrix::<i32, 2, 3>::from([[1, 2, 3], [4, 5, 6]]);
+
+        assert_eq!(mat.transpose(), Matrix::<i32, 3, 2>::from([[1, 4], [2, 5], [3, 6]]));
+    }
+
+    #[test]
+    fn identity_returns_expected_matrix() {
+        assert_eq!(
+            Matrix::<i32, 3, 3>::identity(),
+            Matrix::from([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        );
+    }
+
+    #[test]
     fn get_matrix_entry() {
         let mat = FMatrix::<3, 3>::from([[1.0, 2.0, 3.0], [42.0, 5.0, 6.0], [7.0, 8.0, 9.0]]);
 
@@ -100,8 +140,24 @@ mod tests {
     fn get_out_of_bounds_returns_error() {
         let mat = FMatrix::<2, 2>::from([[1.0, 2.0], [3.0, 4.0]]);
 
-        assert!(mat.get(2, 0).is_err());
-        assert!(mat.get(0, 2).is_err());
+        assert_eq!(
+            mat.get(2, 0),
+            Err(MatrixError::OutOfBounds {
+                row_found: 2,
+                row_max: 2,
+                col_found: 0,
+                col_max: 2,
+            })
+        );
+        assert!(matches!(
+            mat.get(0, 2),
+            Err(MatrixError::OutOfBounds {
+                row_found: 0,
+                row_max: 2,
+                col_found: 2,
+                col_max: 2,
+            })
+        ));
     }
 
     #[test]
@@ -115,49 +171,12 @@ mod tests {
     fn get_vector_out_of_bounds_returns_error() {
         let mat = FMatrix::<3, 2>::from([[1.0, 2.0], [42.0, 5.0], [7.0, 8.0]]);
 
-        assert!(mat.get_vector(2).is_err());
-    }
-
-    #[test]
-    fn configured_cpu_multiply_uses_cpu_backend() {
-        let mat1 = Matrix::<f32, 2, 2>::from([[1.0, 2.0], [3.0, 4.0]]);
-        let mat2 = Matrix::<f32, 2, 2>::from([[5.0, 6.0], [7.0, 8.0]]);
-
-        let output = mat1.multiply_with(&mat2, ComputeOptions::cpu()).unwrap();
-
-        assert_eq!(output.backend, ComputeBackend::Cpu);
         assert_eq!(
-            output.matrix,
-            Matrix::<f32, 2, 2>::from([[19.0, 22.0], [43.0, 50.0]])
-        );
-    }
-
-    #[test]
-    fn default_multiply_uses_cpu_backend() {
-        let mat1 = Matrix::<f32, 2, 2>::from([[1.0, 2.0], [3.0, 4.0]]);
-        let mat2 = Matrix::<f32, 2, 2>::from([[5.0, 6.0], [7.0, 8.0]]);
-
-        let output = mat1.multiply_with(&mat2, Default::default()).unwrap();
-
-        assert_eq!(output.backend, ComputeBackend::Cpu);
-        assert_eq!(
-            output.matrix,
-            Matrix::<f32, 2, 2>::from([[19.0, 22.0], [43.0, 50.0]])
-        );
-    }
-
-    #[test]
-    fn auto_with_fallback_produces_result() {
-        let mat1 = Matrix::<f32, 2, 2>::from([[1.0, 2.0], [3.0, 4.0]]);
-        let mat2 = Matrix::<f32, 2, 2>::from([[5.0, 6.0], [7.0, 8.0]]);
-
-        let output = mat1
-            .multiply_with(&mat2, ComputeOptions::auto().with_fallback(true))
-            .unwrap();
-
-        assert_eq!(
-            output.matrix,
-            Matrix::<f32, 2, 2>::from([[19.0, 22.0], [43.0, 50.0]])
+            mat.get_vector(2),
+            Err(MatrixError::ColumnOutOfBounds {
+                col_found: 2,
+                col_max: 2,
+            })
         );
     }
 
@@ -165,53 +184,66 @@ mod tests {
     fn determinant_and_inverse_are_explicitly_unimplemented() {
         let mat = Matrix::<f64, 2, 2>::from([[1.0, 2.0], [3.0, 4.0]]);
 
-        assert!(mat.determinant().is_err());
-        assert!(mat.inverse().is_err());
-    }
-
-    #[test]
-    fn i8_auto_prefers_cpu_backend() {
-        let lhs = Matrix::<i8, 2, 2>::from([[1, 2], [3, 4]]);
-        let rhs = Matrix::<i8, 2, 2>::from([[5, 6], [7, 8]]);
-
-        let output = lhs
-            .multiply_with(&rhs, ComputeOptions::auto())
-            .expect("auto mode should always produce a result");
-
-        assert_eq!(output.backend, ComputeBackend::Cpu);
-        assert_eq!(
-            output.matrix,
-            Matrix::<i8, 2, 2>::from([[19, 22], [43, 50]])
-        );
-    }
-
-    #[test]
-    fn i8_gpu_without_fallback_errors() {
-        let lhs = Matrix::<i8, 2, 2>::from([[1, 2], [3, 4]]);
-        let rhs = Matrix::<i8, 2, 2>::from([[5, 6], [7, 8]]);
-
-        let err = lhs
-            .multiply_with(&rhs, ComputeOptions::gpu())
-            .expect_err("integer GPU path should be explicitly unsupported");
         assert!(matches!(
-            err,
-            crate::matrix::Error::GpuUnsupportedScalar { .. }
+            mat.determinant(),
+            Err(MatrixError::UnsupportedOperation {
+                operation: "determinant"
+            })
+        ));
+        assert!(matches!(
+            mat.inverse(),
+            Err(MatrixError::UnsupportedOperation {
+                operation: "inverse"
+            })
         ));
     }
 
     #[test]
-    fn i8_gpu_with_fallback_uses_cpu() {
-        let lhs = Matrix::<i8, 2, 2>::from([[1, 2], [3, 4]]);
-        let rhs = Matrix::<i8, 2, 2>::from([[5, 6], [7, 8]]);
+    fn vector_addition_is_pairwise() {
+        let lhs = Vector::from([1, 2, 3]);
+        let rhs = Vector::from([4, 5, 6]);
 
-        let output = lhs
-            .multiply_with(&rhs, ComputeOptions::gpu().with_fallback(true))
-            .expect("fallback should keep integer multiplication available");
+        assert_eq!(&lhs + &rhs, Vector::from([5, 7, 9]));
+    }
 
-        assert_eq!(output.backend, ComputeBackend::Cpu);
+    #[test]
+    fn gpu_runtime_initializes_or_reports_missing_device() {
+        match MetalRuntime::new() {
+            Ok(_) => {}
+            Err(MetalError::NoMetalDevice) => {}
+            Err(err) => panic!("unexpected Metal runtime init failure: {err}"),
+        }
+    }
+
+    #[test]
+    fn gpu_square_multiply_matches_cpu() {
+        let runtime = match MetalRuntime::new() {
+            Ok(runtime) => runtime,
+            Err(MetalError::NoMetalDevice) => return,
+            Err(err) => panic!("unexpected Metal runtime init failure: {err}"),
+        };
+        let lhs = Matrix::<f32, 2, 2>::from([[1.0, 2.0], [3.0, 4.0]]);
+        let rhs = Matrix::<f32, 2, 2>::from([[5.0, 6.0], [7.0, 8.0]]);
+
         assert_eq!(
-            output.matrix,
-            Matrix::<i8, 2, 2>::from([[19, 22], [43, 50]])
+            runtime.multiply(&lhs, &rhs).unwrap(),
+            lhs.multiply(&rhs),
+        );
+    }
+
+    #[test]
+    fn gpu_rectangular_multiply_matches_cpu() {
+        let runtime = match MetalRuntime::new() {
+            Ok(runtime) => runtime,
+            Err(MetalError::NoMetalDevice) => return,
+            Err(err) => panic!("unexpected Metal runtime init failure: {err}"),
+        };
+        let lhs = Matrix::<f32, 2, 3>::from([[1.0, 2.0, 0.0], [2.0, 3.0, 3.0]]);
+        let rhs = Matrix::<f32, 3, 2>::from([[4.0, 2.0], [4.0, -1.0], [3.0, -2.0]]);
+
+        assert_eq!(
+            runtime.multiply(&lhs, &rhs).unwrap(),
+            lhs.multiply(&rhs),
         );
     }
 }
