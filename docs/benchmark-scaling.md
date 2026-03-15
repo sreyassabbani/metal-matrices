@@ -1,12 +1,12 @@
 # Matrix Scaling Benchmarks
 
-- Generated: 2026-03-15 13:23:28 UTC
+- Generated: 2026-03-15 14:36:15 UTC
 - Bench suite: `matrix_scaling`
 - Metric: Criterion mean runtime (plots show mean lines; 95% CI is in the table)
 
-![Runtime vs n](plots/matrix-scaling-time.png)
+![Runtime vs matrix dimension n](plots/matrix-scaling-time.png)
 
-![Speedup vs CPU](plots/matrix-scaling-speedup.png)
+![Speedup vs CPU by matrix dimension n](plots/matrix-scaling-speedup.png)
 ## n = 128
 
 | backend | μ ± 95% CI | σ | speedup vs cpu |

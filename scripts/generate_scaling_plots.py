@@ -145,7 +145,7 @@ def generate_time_plot(points: list[Point], out_path: Path) -> None:
             label=labels[backend],
         )
 
-    ax.set_xlabel(r"Matrix Size $n$ ($n \times n$)")
+    ax.set_xlabel("Matrix dimension n (n x n)")
     ax.set_ylabel("Mean Runtime (ms)")
     ax.set_title("Matrix Multiplication Scaling")
     ax.set_yscale("log")
@@ -194,7 +194,7 @@ def generate_speedup_plot(points: list[Point], out_path: Path) -> None:
         )
 
     ax.axhline(1.0, color="#94a3b8", linestyle="--", linewidth=1.4)
-    ax.set_xlabel(r"Matrix Size $n$ ($n \times n$)")
+    ax.set_xlabel("Matrix dimension n (n x n)")
     ax.set_ylabel(r"Speedup ($\times$)")
     ax.set_title("Relative Speedup vs CPU")
     ax.set_xticks(xticks)
@@ -233,9 +233,9 @@ def write_markdown(
             "- Bench suite: `matrix_scaling`",
             "- Metric: Criterion mean runtime (plots show mean lines; 95% CI is in the table)",
             "",
-            f"![Runtime vs n]({time_plot_rel.as_posix()})",
+            f"![Runtime vs matrix dimension n]({time_plot_rel.as_posix()})",
             "",
-            f"![Speedup vs CPU]({speedup_plot_rel.as_posix()})",
+            f"![Speedup vs CPU by matrix dimension n]({speedup_plot_rel.as_posix()})",
             ""
         ]
     )
