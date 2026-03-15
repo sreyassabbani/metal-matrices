@@ -1,7 +1,8 @@
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
-# Default target builds all shaders into shaders/shaders.metallib.
-default: all
+# Optional developer convenience targets for working with Metal shader artifacts directly.
+default:
+    @just --list
 
 all:
     #!/usr/bin/env bash
