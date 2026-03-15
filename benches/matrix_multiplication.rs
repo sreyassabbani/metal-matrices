@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use ndarray::Array2;
 
-use matrix_test::matrix::{ComputeOptions, Matrix};
+use matrix_test::{matrix::Matrix, metal::MetalRuntime};
 
 use std::time::Duration;
 
@@ -35,27 +35,31 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("matrix multiplication");
     group.measurement_time(Duration::from_secs(10));
 
-    let gpu_options = ComputeOptions::gpu();
-    if mat2.multiply_with(&mat2, gpu_options).is_ok() {
-        group.bench_function("gpu matrix multiply", |b| {
-            b.iter(|| {
-                black_box(
-                    mat2.multiply_with(&mat2, gpu_options)
-                        .expect("GPU benchmark preflight should guarantee availability"),
-                )
-            })
-        });
-    } else {
-        eprintln!("Skipping GPU benchmark: Metal backend unavailable");
+    match MetalRuntime::new() {
+        Ok(runtime) => {
+            group.bench_function("gpu warm matrix multiply", |b| {
+                b.iter(|| black_box(runtime.multiply(&mat1, &mat2).expect("warm GPU path should succeed")))
+            });
+            group.bench_function("gpu cold init + multiply", |b| {
+                b.iter(|| {
+                    let runtime = MetalRuntime::new()
+                        .expect("cold GPU benchmark requires runtime initialization to succeed");
+                    black_box(
+                        runtime
+                            .multiply(&mat1, &mat2)
+                            .expect("cold GPU benchmark multiply should succeed"),
+                    )
+                })
+            });
+        }
+        Err(err) => {
+            eprintln!("Skipping GPU benchmarks: {err}");
+        }
     }
 
-    let cpu_options = ComputeOptions::cpu();
     group.bench_function("cpu matrix multiply", |b| {
         b.iter(|| {
-            black_box(
-                mat1.multiply_with(&mat2, cpu_options)
-                    .expect("CPU backend path should be infallible"),
-            )
+            black_box(mat1.multiply(&mat2))
         })
     });
 

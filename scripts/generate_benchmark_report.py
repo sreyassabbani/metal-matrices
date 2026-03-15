@@ -175,7 +175,7 @@ def render_markdown(
             f"- Baseline: `{baseline_name}`",
             f"- Significance: permutation test on per-sample ns/op (`alpha={alpha}`, `reps={permutation_reps}`)",
             "",
-            "| Benchmark | n | μ ± 95% CI | σ | Speed vs baseline | p-value vs baseline | Significant | Cliff's delta |",
+            "| Benchmark | samples | μ ± 95% CI | σ | Speed vs baseline | p-value vs baseline | Significant | Cliff's delta |",
             "| --- | ---: | --- | ---: | ---: | ---: | ---: | --- |",
             *rows,
             "",
@@ -235,7 +235,6 @@ def main() -> None:
         group_dir = criterion_root / args.group
         if group_dir.exists():
             shutil.rmtree(group_dir)
-        subprocess.run(["just", "all"], check=False)
         subprocess.run(
             ["cargo", "bench", "--bench", "matrix_multiplication"],
             check=True,

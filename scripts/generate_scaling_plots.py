@@ -25,7 +25,7 @@ class Point:
     std_dev_ns: float
 
 
-BENCH_RE = re.compile(r"^(cpu|gpu|ndarray) n=(\d+)$")
+BENCH_RE = re.compile(r"^(cpu|gpu warm|ndarray) n=(\d+)$")
 
 
 def format_ns(value: float) -> str:
@@ -121,10 +121,10 @@ def load_points(group_dir: Path) -> list[Point]:
 
 
 def generate_time_plot(points: list[Point], out_path: Path) -> None:
-    backend_order = ["cpu", "gpu", "ndarray"]
-    markers = {"cpu": "o", "gpu": "s", "ndarray": "^"}
-    labels = {"cpu": "CPU", "gpu": "GPU (Metal)", "ndarray": "ndarray"}
-    colors = {"cpu": "#5eead4", "gpu": "#fda4af", "ndarray": "#fcd34d"}
+    backend_order = ["cpu", "gpu warm", "ndarray"]
+    markers = {"cpu": "o", "gpu warm": "s", "ndarray": "^"}
+    labels = {"cpu": "CPU", "gpu warm": "GPU warm (Metal)", "ndarray": "ndarray"}
+    colors = {"cpu": "#5eead4", "gpu warm": "#fda4af", "ndarray": "#fcd34d"}
 
     fig, ax = plt.subplots(figsize=(8.2, 5.1))
     xticks = sorted({p.n for p in points})
@@ -162,12 +162,12 @@ def generate_time_plot(points: list[Point], out_path: Path) -> None:
 
 def generate_speedup_plot(points: list[Point], out_path: Path) -> None:
     cpu_by_n = {p.n: p.mean_ns for p in points if p.backend == "cpu"}
-    colors = {"gpu": "#fda4af", "ndarray": "#fcd34d"}
+    colors = {"gpu warm": "#fda4af", "ndarray": "#fcd34d"}
 
     fig, ax = plt.subplots(figsize=(8.2, 4.8))
     xticks = sorted({p.n for p in points})
     for backend, marker, label in [
-        ("gpu", "s", "GPU speedup vs CPU"),
+        ("gpu warm", "s", "GPU warm speedup vs CPU"),
         ("ndarray", "^", "ndarray speedup vs CPU"),
     ]:
         entries = sorted(
@@ -215,7 +215,7 @@ def write_markdown(
     speedup_plot_path: Path,
 ) -> None:
     cpu_by_n = {p.n: p.mean_ns for p in points if p.backend == "cpu"}
-    backend_rank = {"cpu": 0, "gpu": 1, "ndarray": 2}
+    backend_rank = {"cpu": 0, "gpu warm": 1, "ndarray": 2}
     by_n: dict[int, list[Point]] = {}
     for p in points:
         by_n.setdefault(p.n, []).append(p)
@@ -288,7 +288,6 @@ def main() -> None:
     if not args.no_run:
         if group_dir.exists():
             shutil.rmtree(group_dir)
-        subprocess.run(["just", "all"], check=False)
         subprocess.run(["cargo", "bench", "--bench", "matrix_scaling"], check=True)
 
     if not group_dir.exists():
