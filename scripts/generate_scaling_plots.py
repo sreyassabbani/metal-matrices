@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import re
 import shutil
 import shutil as _shutil
@@ -280,6 +281,11 @@ def main() -> None:
     parser.add_argument("--output", default="docs/benchmark-scaling.md")
     parser.add_argument("--plot-dir", default="docs/plots")
     parser.add_argument("--no-run", action="store_true")
+    parser.add_argument(
+        "--cargo-features",
+        default="",
+        help="Optional Cargo features to pass through to `cargo bench`.",
+    )
     args = parser.parse_args()
 
     criterion_root = Path(args.criterion_root)
@@ -288,7 +294,17 @@ def main() -> None:
     if not args.no_run:
         if group_dir.exists():
             shutil.rmtree(group_dir)
-        subprocess.run(["cargo", "bench", "--bench", "matrix_scaling"], check=True)
+        subprocess.run(
+            [
+                "cargo",
+                "bench",
+                *(["--features", args.cargo_features] if args.cargo_features else []),
+                "--bench",
+                "matrix_scaling",
+            ],
+            check=True,
+            env={**os.environ},
+        )
 
     if not group_dir.exists():
         raise SystemExit(f"Benchmark group not found: {group_dir}")

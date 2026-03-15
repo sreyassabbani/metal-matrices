@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import random
 import shutil
 import statistics
@@ -228,6 +229,11 @@ def main() -> None:
         action="store_true",
         help="Do not run cargo bench; only parse existing Criterion output.",
     )
+    parser.add_argument(
+        "--cargo-features",
+        default="",
+        help="Optional Cargo features to pass through to `cargo bench`.",
+    )
     args = parser.parse_args()
 
     if not args.no_run:
@@ -236,8 +242,15 @@ def main() -> None:
         if group_dir.exists():
             shutil.rmtree(group_dir)
         subprocess.run(
-            ["cargo", "bench", "--bench", "matrix_multiplication"],
+            [
+                "cargo",
+                "bench",
+                *(["--features", args.cargo_features] if args.cargo_features else []),
+                "--bench",
+                "matrix_multiplication",
+            ],
             check=True,
+            env={**os.environ},
         )
 
     criterion_root = Path(args.criterion_root)
