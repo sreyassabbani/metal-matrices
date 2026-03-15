@@ -1,14 +1,21 @@
-use matrix_test::matrix::Matrix;
+use metal_matrices::matrix::Matrix;
 
 fn main() {
     let lhs = Matrix::<f32, 2, 3>::from([[1.0, 2.0, 0.0], [2.0, 3.0, 3.0]]);
     let rhs = Matrix::<f32, 3, 2>::from([[4.0, 2.0], [4.0, -1.0], [3.0, -2.0]]);
 
+    println!("lhs dimensions: {}x{}", lhs.rows(), lhs.cols());
     let product = lhs.multiply(&rhs);
     println!("CPU product:\n{product:?}");
 
     let transpose = product.transpose();
     println!("Transpose:\n{transpose:?}");
+
+    println!("Row-major entries: {:?}", product.as_row_major_slice());
+    println!(
+        "First row: {:?}",
+        product.row_slice(0).expect("row 0 should exist")
+    );
 
     let first_column = product
         .get_vector(0)

@@ -25,6 +25,15 @@ pub enum MatrixError {
         "Accessing column index out of bounds of matrix dimensions: got column {col_found} when number of columns is {col_max}"
     )]
     ColumnOutOfBounds { col_found: usize, col_max: usize },
+    #[error("Accessing row index out of bounds of matrix dimensions: got row {row_found} when number of rows is {row_max}")]
+    RowOutOfBounds { row_found: usize, row_max: usize },
+    #[error(
+        "Row-major input shape mismatch: expected {expected_len} elements but got {actual_len}"
+    )]
+    ShapeMismatch {
+        expected_len: usize,
+        actual_len: usize,
+    },
     #[error("Operation '{operation}' is not implemented for this matrix type")]
     UnsupportedOperation { operation: &'static str },
 }
@@ -65,11 +74,33 @@ impl<T: Numeric, const M: usize, const N: usize> Matrix<T, M, N> {
         }
     }
 
-    pub(crate) fn from_row_major_slice(values: &[T]) -> Self {
-        assert_eq!(values.len(), M * N, "row-major slice length must match matrix dimensions");
-        Self::from_fn(|row, col| values[row * N + col])
+    pub const fn rows(&self) -> usize {
+        M
     }
 
+    pub const fn cols(&self) -> usize {
+        N
+    }
+
+    pub fn as_row_major_slice(&self) -> &[T] {
+        unsafe {
+            // SAFETY: `[[T; N]; M]` is laid out as `M * N` contiguous `T` values.
+            std::slice::from_raw_parts(self.entries.as_ptr() as *const T, M * N)
+        }
+    }
+
+    pub fn from_row_major(values: &[T]) -> Result<Self, MatrixError> {
+        if values.len() != M * N {
+            return Err(MatrixError::ShapeMismatch {
+                expected_len: M * N,
+                actual_len: values.len(),
+            });
+        }
+
+        Ok(Self::from_fn(|row, col| values[row * N + col]))
+    }
+
+    #[cfg(all(feature = "metal", target_os = "macos"))]
     pub(crate) fn as_ptr(&self) -> *const T {
         self.entries.as_ptr() as *const T
     }
@@ -77,7 +108,7 @@ impl<T: Numeric, const M: usize, const N: usize> Matrix<T, M, N> {
     /// Returns the null matrix of a given dimension.
     ///
     /// ```rust
-    /// use matrix_test::matrix::Matrix;
+    /// use metal_matrices::matrix::Matrix;
     ///
     /// let null_mat = Matrix::<i32, 3, 3>::null();
     /// let expected = Matrix::from([[0, 0, 0], [0, 0, 0], [0, 0, 0]]);
@@ -91,7 +122,7 @@ impl<T: Numeric, const M: usize, const N: usize> Matrix<T, M, N> {
     /// Get the entry at `row` and `col` for a given [`Matrix<T, M, N>`].
     ///
     /// ```rust
-    /// use matrix_test::matrix::Matrix;
+    /// use metal_matrices::matrix::Matrix;
     ///
     /// let mat = Matrix::<i32, 3, 3>::from([[1, 2, 3], [42, 5, 6], [7, 8, 9]]);
     /// let found = mat.get(1, 0);
@@ -135,10 +166,25 @@ impl<T: Numeric, const M: usize, const N: usize> Matrix<T, M, N> {
         Ok(Vector::from_fn(|row| self.entries[row][col]))
     }
 
+    pub fn row(&self, row: usize) -> Result<&[T; N], MatrixError> {
+        if row >= M {
+            return Err(MatrixError::RowOutOfBounds {
+                row_found: row,
+                row_max: M,
+            });
+        }
+
+        Ok(&self.entries[row])
+    }
+
+    pub fn row_slice(&self, row: usize) -> Result<&[T], MatrixError> {
+        self.row(row).map(|entries| &entries[..])
+    }
+
     /// Returns the transpose of the given matrix.
     ///
     /// ```rust
-    /// use matrix_test::matrix::Matrix;
+    /// use metal_matrices::matrix::Matrix;
     ///
     /// let matrix = Matrix::from([[1, 2, 3], [4, 5, 6]]);
     /// let transpose = matrix.transpose();
@@ -171,7 +217,7 @@ impl<T: Numeric, const M: usize> Matrix<T, M, M> {
     /// Returns the identity matrix.
     ///
     /// ```rust
-    /// use matrix_test::matrix::Matrix;
+    /// use metal_matrices::matrix::Matrix;
     ///
     /// let identity = Matrix::<i32, 2, 2>::identity();
     /// let expected = Matrix::from([[1, 0], [0, 1]]);
@@ -238,5 +284,43 @@ impl<T: Numeric, const M: usize, const N: usize> fmt::Debug for Matrix<T, M, N> 
             writeln!(f, "{:?}", row[row.len() - 1])?;
         }
         Ok(())
+    }
+}
+
+impl<T: Numeric, const M: usize, const N: usize> TryFrom<&[T]> for Matrix<T, M, N> {
+    type Error = MatrixError;
+
+    fn try_from(values: &[T]) -> Result<Self, Self::Error> {
+        Self::from_row_major(values)
+    }
+}
+
+impl<T: Numeric, const M: usize, const N: usize> From<Matrix<T, M, N>> for ndarray::Array2<T> {
+    fn from(matrix: Matrix<T, M, N>) -> Self {
+        ndarray::Array2::from_shape_vec((M, N), matrix.as_row_major_slice().to_vec())
+            .expect("matrix dimensions must align with row-major storage")
+    }
+}
+
+impl<T: Numeric, const M: usize, const N: usize> From<&Matrix<T, M, N>> for ndarray::Array2<T> {
+    fn from(matrix: &Matrix<T, M, N>) -> Self {
+        ndarray::Array2::from_shape_vec((M, N), matrix.as_row_major_slice().to_vec())
+            .expect("matrix dimensions must align with row-major storage")
+    }
+}
+
+impl<T: Numeric, const M: usize, const N: usize> TryFrom<ndarray::Array2<T>> for Matrix<T, M, N> {
+    type Error = MatrixError;
+
+    fn try_from(array: ndarray::Array2<T>) -> Result<Self, Self::Error> {
+        let (rows, cols) = array.dim();
+        if rows != M || cols != N {
+            return Err(MatrixError::ShapeMismatch {
+                expected_len: M * N,
+                actual_len: rows * cols,
+            });
+        }
+
+        Ok(Self::from_fn(|row, col| array[(row, col)]))
     }
 }

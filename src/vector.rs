@@ -39,6 +39,10 @@ impl<T: Numeric, const M: usize> Vector<T, M> {
             entries: unsafe { uninit_entries.assume_init() },
         }
     }
+
+    pub fn as_slice(&self) -> &[T] {
+        &self.entries[..]
+    }
 }
 
 impl<T, const M: usize> AsRef<[T; M]> for Vector<T, M>

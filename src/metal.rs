@@ -1,13 +1,15 @@
 use crate::matrix::Matrix;
 use metal::{
-    ComputePipelineState, Device, MTLCommandBufferStatus, MTLResourceOptions, MTLSize,
+    CompileOptions, ComputePipelineState, Device, MTLCommandBufferStatus, MTLResourceOptions,
+    MTLSize,
 };
 use objc::rc::autoreleasepool;
 use std::{ffi::c_void, mem};
 
 use thiserror::Error;
 
-static EMBEDDED_METALLIB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/shaders.metallib"));
+const TILE_SIZE: u64 = 16;
+static SHADER_SOURCE: &str = include_str!("../shaders/matrix_multiplication.metal");
 
 pub struct MetalRuntime {
     device: Device,
@@ -19,10 +21,16 @@ pub struct MetalRuntime {
 pub enum MetalError {
     #[error("No Metal device available on this machine")]
     NoMetalDevice,
-    #[error("Embedded Metal library could not be loaded: {message}")]
-    MetallibLoad { message: String },
+    #[error("Failed to compile Metal shader during {stage}: {message}")]
+    ShaderBuildFailed {
+        stage: &'static str,
+        message: String,
+    },
     #[error("Failed to load Metal function '{function}': {message}")]
-    MetalFunctionLoad { function: &'static str, message: String },
+    MetalFunctionLoad {
+        function: &'static str,
+        message: String,
+    },
     #[error("Failed to create Metal compute pipeline: {message}")]
     MetalPipelineCreation { message: String },
     #[error("Matrix dimension '{dimension}' with value {value} does not fit in a u32")]
@@ -39,16 +47,19 @@ impl MetalRuntime {
         autoreleasepool(|| {
             let device = Device::system_default().ok_or(MetalError::NoMetalDevice)?;
             let queue = device.new_command_queue();
+            let compile_options = CompileOptions::new();
             let library = device
-                .new_library_with_data(EMBEDDED_METALLIB)
-                .map_err(|message| MetalError::MetallibLoad { message })?;
-            let kernel =
-                library
-                    .get_function("matrix_multiply", None)
-                    .map_err(|message| MetalError::MetalFunctionLoad {
-                        function: "matrix_multiply",
-                        message,
-                    })?;
+                .new_library_with_source(SHADER_SOURCE, &compile_options)
+                .map_err(|message| MetalError::ShaderBuildFailed {
+                    stage: "source compilation",
+                    message,
+                })?;
+            let kernel = library
+                .get_function("matrix_multiply", None)
+                .map_err(|message| MetalError::MetalFunctionLoad {
+                    function: "matrix_multiply",
+                    message,
+                })?;
             let pipeline_state = device
                 .new_compute_pipeline_state_with_function(&kernel)
                 .map_err(|message| MetalError::MetalPipelineCreation { message })?;
@@ -59,6 +70,18 @@ impl MetalRuntime {
                 pipeline_state,
             })
         })
+    }
+
+    pub fn is_available() -> bool {
+        Device::system_default().is_some()
+    }
+
+    pub fn shader_kind(&self) -> &'static str {
+        "tiled-f32"
+    }
+
+    pub fn threadgroup_shape(&self) -> (u64, u64) {
+        (TILE_SIZE, TILE_SIZE)
     }
 
     pub fn multiply<const M: usize, const N: usize, const K: usize>(
@@ -105,12 +128,13 @@ impl MetalRuntime {
             encoder.set_bytes(4, bytes_len, n_ref);
             encoder.set_bytes(5, bytes_len, k_ref);
 
-            let thread_width = self.pipeline_state.thread_execution_width().max(1);
-            let thread_height =
-                (self.pipeline_state.max_total_threads_per_threadgroup() / thread_width).max(1);
-            let threads_per_threadgroup = MTLSize::new(thread_width, thread_height, 1);
-            let threads_per_grid = MTLSize::new(K as u64, M as u64, 1);
-            encoder.dispatch_threads(threads_per_grid, threads_per_threadgroup);
+            let threads_per_threadgroup = MTLSize::new(TILE_SIZE, TILE_SIZE, 1);
+            let threadgroups_per_grid = MTLSize::new(
+                ceil_div(K as u64, TILE_SIZE),
+                ceil_div(M as u64, TILE_SIZE),
+                1,
+            );
+            encoder.dispatch_thread_groups(threadgroups_per_grid, threads_per_threadgroup);
 
             encoder.end_encoding();
             command_buffer.commit();
@@ -127,11 +151,16 @@ impl MetalRuntime {
                 std::slice::from_raw_parts(result_ptr, M * K)
             };
 
-            Ok(Matrix::from_row_major_slice(values))
+            Ok(Matrix::from_row_major(values)
+                .expect("GPU output length must match matrix dimensions"))
         })
     }
 }
 
 fn checked_dim(dimension: &'static str, value: usize) -> Result<u32, MetalError> {
     u32::try_from(value).map_err(|_| MetalError::DimensionOverflow { dimension, value })
+}
+
+fn ceil_div(value: u64, divisor: u64) -> u64 {
+    value.div_ceil(divisor)
 }

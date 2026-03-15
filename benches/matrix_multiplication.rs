@@ -1,7 +1,9 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use ndarray::Array2;
 
-use matrix_test::{matrix::Matrix, metal::MetalRuntime};
+use metal_matrices::matrix::Matrix;
+#[cfg(all(feature = "metal", target_os = "macos"))]
+use metal_matrices::metal::MetalRuntime;
 
 use std::time::Duration;
 
@@ -13,13 +15,7 @@ fn matrix_value(row: usize, col: usize, seed: f32) -> f32 {
 }
 
 fn build_matrix(seed: f32) -> Matrix<f32, SIZE, SIZE> {
-    let mut entries = [[0.0_f32; SIZE]; SIZE];
-    for (row, row_entries) in entries.iter_mut().enumerate() {
-        for (col, entry) in row_entries.iter_mut().enumerate() {
-            *entry = matrix_value(row, col, seed);
-        }
-    }
-    Matrix::from(entries)
+    Matrix::from_fn(|row, col| matrix_value(row, col, seed))
 }
 
 fn build_ndarray(seed: f32) -> Array2<f32> {
@@ -35,10 +31,17 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("matrix multiplication");
     group.measurement_time(Duration::from_secs(10));
 
+    #[cfg(all(feature = "metal", target_os = "macos"))]
     match MetalRuntime::new() {
         Ok(runtime) => {
             group.bench_function("gpu warm matrix multiply", |b| {
-                b.iter(|| black_box(runtime.multiply(&mat1, &mat2).expect("warm GPU path should succeed")))
+                b.iter(|| {
+                    black_box(
+                        runtime
+                            .multiply(&mat1, &mat2)
+                            .expect("warm GPU path should succeed"),
+                    )
+                })
             });
             group.bench_function("gpu cold init + multiply", |b| {
                 b.iter(|| {
@@ -58,9 +61,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     }
 
     group.bench_function("cpu matrix multiply", |b| {
-        b.iter(|| {
-            black_box(mat1.multiply(&mat2))
-        })
+        b.iter(|| black_box(mat1.multiply(&mat2)))
     });
 
     group.bench_function("ndarray multiply", |b| b.iter(|| mata.dot(&matb)));
